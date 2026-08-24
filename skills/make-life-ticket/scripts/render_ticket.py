@@ -29,6 +29,11 @@ SHAPES = {
     "chapter-pass": ((1200, 1500), "chapter-poster"),
 }
 
+SHAPES_BY_KIND = {
+    "past": ("film-edge", "intermission-stub"),
+    "universe": ("chapter-pass", "film-edge", "intermission-stub"),
+}
+
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 FONT_DIR = SKILL_ROOT / "assets" / "fonts"
 TICKET_STOCK_DIR = SKILL_ROOT / "assets" / "ticket-stock"
@@ -122,9 +127,11 @@ def seed_from(data: dict[str, Any]) -> int:
 def choose_design(data: dict[str, Any], override: str | None) -> tuple[str, str]:
     design = data.setdefault("design", {})
     shape = override or design.get("shapeStyle")
+    allowed_shapes = SHAPES_BY_KIND[data["kind"]]
     if shape not in SHAPES:
-        choices = sorted(SHAPES)
-        shape = choices[seed_from(data) % len(choices)]
+        shape = allowed_shapes[seed_from(data) % len(allowed_shapes)]
+    elif shape not in allowed_shapes:
+        raise ValueError("chapter-pass is reserved for universe tickets; past tickets only accept film-edge or intermission-stub")
     layout = SHAPES[shape][1]
     design["shapeStyle"] = shape
     design["layoutStyle"] = layout

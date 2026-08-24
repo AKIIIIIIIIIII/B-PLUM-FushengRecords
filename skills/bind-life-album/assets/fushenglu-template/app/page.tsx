@@ -325,13 +325,15 @@ export default function Home() {
     if (!files.length) return;
     const result = await parseTicketFiles(files);
     if (!result.tickets.length) {
-      showImportMessage("没有识别到可收藏的票根，请同时选择同名的票根图片与票据册");
+      const reason = result.rejected[0]?.reason;
+      showImportMessage(reason || "没有识别到可收藏的票根，请同时选择同名的票根图片与票据册");
       return;
     }
     await saveStoredTickets(result.tickets);
     await reloadLocalTickets();
     const savedText = result.tickets.length === 1 ? "一张票根已收入藏本" : `${result.tickets.length}张票根已收入藏本`;
-    showImportMessage(result.skipped ? `${savedText}，另有${result.skipped}个文件未识别` : savedText);
+    const firstReason = result.rejected[0]?.reason;
+    showImportMessage(result.skipped ? `${savedText}；${firstReason || `另有${result.skipped}个文件未识别`}` : savedText);
   }, [reloadLocalTickets, showImportMessage]);
 
   const exportAllTickets = useCallback(async () => {

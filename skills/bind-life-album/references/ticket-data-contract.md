@@ -10,6 +10,13 @@
 - title
 - createdAt
 
+## 票型相容规则
+
+- `past` 只接受 `intermission-stub`、`film-edge`。
+- `universe` 接受 `intermission-stub`、`film-edge`、`chapter-pass`。
+- 优先读取 `design.shapeStyle`，并同时用 PNG 尺寸复核。声明票型未知、JSON 与 PNG 不一致或 `past + chapter-pass` 时拒绝导入。
+- 网页端仅有旧式 PNG 时，可根据 `LT-P-`／`LT-U-` 票号和图片尺寸识别；过去竖票仍然拒绝。正式目录收录仍要求同名 PNG 与 JSON。
+
 ## 展示映射
 
 - kind 为 past：往昔纪念票，进入过去篇

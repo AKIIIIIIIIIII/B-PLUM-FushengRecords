@@ -6,10 +6,18 @@ const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "
 const storeSource = await readFile(new URL("../app/ticket-store.ts", import.meta.url), "utf8");
 const styleSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
-test("IndexedDB v2 preserves tickets and adds persisted album settings", () => {
-  assert.match(storeSource, /indexedDB\.open\(DATABASE_NAME, 2\)/);
+test("IndexedDB v3 preserves tickets and persisted album settings", () => {
+  assert.match(storeSource, /indexedDB\.open\(DATABASE_NAME, 3\)/);
   assert.match(storeSource, /createObjectStore\(SETTINGS_STORE_NAME, \{ keyPath: "key" \}\)/);
   assert.match(storeSource, /database\.transaction\(\[STORE_NAME, SETTINGS_STORE_NAME\], "readwrite"\)/);
+});
+
+test("ticket imports enforce two past shapes and three future shapes", () => {
+  assert.match(storeSource, /shapeAllowedForKind/);
+  assert.match(storeSource, /kind === "universe" \|\| shape !== "chapter-pass"/);
+  assert.match(storeSource, /JSON 票型与 PNG 尺寸不一致/);
+  assert.match(storeSource, /过去篇仅接受幕间长票或胶片齿票/);
+  assert.match(pageSource, /result\.rejected\[0\]\?\.reason/);
 });
 
 test("clear all removes local tickets and hides defaults atomically", () => {

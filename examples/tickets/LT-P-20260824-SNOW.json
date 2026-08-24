@@ -24,12 +24,12 @@
   "image": {
     "source": "generated",
     "concept": "一个人站在东京初雪中的安静街角，暖色街灯照亮围巾与飘落的雪。",
-    "prompt": "原创当代编辑插画，东京冬夜的安静街角，一个穿大衣围围巾的人在初雪中停步，暖色街灯、屋檐与细雪，低饱和石油蓝和烟陶土色，细炭黑墨线和平涂，无文字、数字、标志或水印。",
+    "prompt": "原创当代编辑插画，东京冬夜的安静街角，一个穿大衣与围巾的人在初雪中停步，完整呈现头部、上身和双手；暖色街灯、屋檐与细雪，低饱和石油蓝和烟陶土色，细炭黑墨线和平涂，5:4 构图，无文字、数字、标志或水印。",
     "referenceUsed": false
   },
   "design": {
-    "shapeStyle": "chapter-pass",
-    "layoutStyle": "chapter-poster",
+    "shapeStyle": "film-edge",
+    "layoutStyle": "stage-triptych",
     "imageStyle": "symbolic-card-illustration",
     "finishStyle": "modern-vintage-editorial",
     "typographyStyle": "qiji-source-han"

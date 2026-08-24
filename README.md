@@ -10,6 +10,7 @@
 
 - 制作“往昔纪念票”，收藏已经发生的人生片段。
 - 制作“宇宙订单票”，温柔记录希望体验或抵达的一幕，不把愿望描述为结果保证。
+- 往昔纪念票使用两种横向长票；宇宙订单票在此基础上增加未来专属的竖向章节方票，共三种。
 - 建立默认本地运行的互动古籍藏册。
 - 将同名 PNG 与 JSON 票根收录进藏册。
 - 植入完全虚构的演示票，方便测试和展示。
@@ -76,6 +77,8 @@
 ## English
 
 Fusheng Records is a local-first plugin for ChatGPT and Codex. It turns personal moments and gently framed future wishes into collectible life tickets, then keeps those PNG/JSON pairs inside an interactive book-inspired album.
+
+Past Memorial Tickets use two horizontal ticket shapes. Universe Order Tickets support those two plus the future-only vertical `chapter-pass` shape.
 
 ### Features
 

@@ -99,7 +99,34 @@ type TicketJson = {
   note?: string;
   createdAt?: string;
   time?: { mode?: string; display?: string; raw?: string };
+  design?: { shapeStyle?: TicketShape };
 };
+
+type TicketShape = "intermission-stub" | "film-edge" | "chapter-pass";
+type RejectedTicket = { file: string; reason: string };
+
+const TICKET_SHAPES = new Set<TicketShape>(["intermission-stub", "film-edge", "chapter-pass"]);
+
+export function shapeFromDimensions(width: number, height: number): TicketShape | null {
+  if (!(width > 0 && height > 0)) return null;
+  const ratio = width / height;
+  if (Math.abs(ratio - 3) <= 0.16) return "intermission-stub";
+  if (Math.abs(ratio - 2.5) <= 0.16) return "film-edge";
+  if (Math.abs(ratio - 0.8) <= 0.08) return "chapter-pass";
+  return null;
+}
+
+export function shapeAllowedForKind(kind: "past" | "universe", shape: TicketShape): boolean {
+  return kind === "universe" || shape !== "chapter-pass";
+}
+
+async function readPngShape(file: File): Promise<TicketShape | null> {
+  const bytes = new Uint8Array(await file.slice(0, 24).arrayBuffer());
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 24 || !signature.every((value, index) => bytes[index] === value)) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return shapeFromDimensions(view.getUint32(16), view.getUint32(20));
+}
 
 function ticketSortKey(data: TicketJson) {
   if (data.kind !== "past") return data.createdAt || "9999-12-31T23:59:59Z";
@@ -127,23 +154,55 @@ function chooseImage(ticketNumber: string, images: File[]) {
   })[0];
 }
 
-export async function parseTicketFiles(files: File[]): Promise<{ tickets: StoredTicket[]; skipped: number }> {
+export async function parseTicketFiles(files: File[]): Promise<{ tickets: StoredTicket[]; skipped: number; rejected: RejectedTicket[] }> {
   const jsonFiles = files.filter((file) => file.name.toLowerCase().endsWith(".json"));
   const imageFiles = files.filter((file) => file.type === "image/png" || file.name.toLowerCase().endsWith(".png"));
   const tickets: StoredTicket[] = [];
   const pairedImages = new Set<string>();
+  const matchedImages = new Set<string>();
+  const rejected: RejectedTicket[] = [];
   let skipped = files.length - jsonFiles.length - imageFiles.length;
 
   for (const file of jsonFiles) {
     try {
       const rawText = await file.text();
       const data = JSON.parse(rawText) as TicketJson;
-      if (data.schemaVersion !== 1 || !data.ticketNumber || !data.kind || !data.title) {
+      if (data.schemaVersion !== 1 || !data.ticketNumber || (data.kind !== "past" && data.kind !== "universe") || !data.title) {
         skipped += 1;
+        rejected.push({ file: file.name, reason: "JSON 结构无效" });
         continue;
       }
       const image = chooseImage(data.ticketNumber, imageFiles);
-      if (image) pairedImages.add(image.name);
+      if (!image) {
+        skipped += 1;
+        rejected.push({ file: file.name, reason: "缺少同名 PNG" });
+        continue;
+      }
+      matchedImages.add(image.name);
+      const declaredShape = data.design?.shapeStyle;
+      if (declaredShape !== undefined && !TICKET_SHAPES.has(declaredShape)) {
+        skipped += 1;
+        rejected.push({ file: file.name, reason: "JSON 中的票型未知" });
+        continue;
+      }
+      const imageShape = await readPngShape(image);
+      if (!imageShape) {
+        skipped += 1;
+        rejected.push({ file: image.name, reason: "PNG 尺寸不属于标准票型" });
+        continue;
+      }
+      if (declaredShape && declaredShape !== imageShape) {
+        skipped += 1;
+        rejected.push({ file: file.name, reason: "JSON 票型与 PNG 尺寸不一致" });
+        continue;
+      }
+      const shape = declaredShape || imageShape;
+      if (!shapeAllowedForKind(data.kind, shape)) {
+        skipped += 1;
+        rejected.push({ file: file.name, reason: "过去篇仅接受幕间长票或胶片齿票" });
+        continue;
+      }
+      pairedImages.add(image.name);
       tickets.push({
         ticketNumber: data.ticketNumber,
         kind: data.kind,
@@ -158,16 +217,29 @@ export async function parseTicketFiles(files: File[]): Promise<{ tickets: Stored
       });
     } catch {
       skipped += 1;
+      rejected.push({ file: file.name, reason: "JSON 无法读取" });
     }
   }
 
   for (const image of imageFiles) {
-    if (pairedImages.has(image.name)) continue;
+    if (pairedImages.has(image.name) || matchedImages.has(image.name)) continue;
     const ticketNumber = ticketStem(image.name);
     if (tickets.some((ticket) => ticket.ticketNumber === ticketNumber)) continue;
     const type = /^LT-U-/i.test(ticketNumber) ? "universe" : /^LT-P-/i.test(ticketNumber) ? "past" : null;
     if (!type) {
       skipped += 1;
+      rejected.push({ file: image.name, reason: "无法从票号判断过去或未来" });
+      continue;
+    }
+    const shape = await readPngShape(image);
+    if (!shape) {
+      skipped += 1;
+      rejected.push({ file: image.name, reason: "PNG 尺寸不属于标准票型" });
+      continue;
+    }
+    if (!shapeAllowedForKind(type, shape)) {
+      skipped += 1;
+      rejected.push({ file: image.name, reason: "过去篇仅接受幕间长票或胶片齿票" });
       continue;
     }
     tickets.push({
@@ -183,7 +255,7 @@ export async function parseTicketFiles(files: File[]): Promise<{ tickets: Stored
     });
   }
 
-  return { tickets, skipped };
+  return { tickets, skipped, rejected };
 }
 
 export function reconstructStoredTicketJson(ticket: StoredTicket): string {

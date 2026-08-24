@@ -119,6 +119,13 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 - `design.finishStyle`：固定为 `modern-vintage-editorial`
 - `design.typographyStyle`：固定为 `qiji-source-han`（中文齐伋体，英文与数字思源宋体）
 
+票种与票形必须相容：
+
+- `past`：只允许 `intermission-stub`、`film-edge`
+- `universe`：允许 `intermission-stub`、`film-edge`、`chapter-pass`
+
+`chapter-pass` 是未来专属票形，不得写入往昔纪念票。
+
 当宇宙订单票选择不显示时间时，使用：
 
 ```json

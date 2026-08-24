@@ -2,6 +2,40 @@
 
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SHAPES = new Set(["intermission-stub", "film-edge", "chapter-pass"]);
+
+export function shapeFromDimensions(width, height) {
+  if (!(width > 0 && height > 0)) return null;
+  const ratio = width / height;
+  if (Math.abs(ratio - 3) <= 0.16) return "intermission-stub";
+  if (Math.abs(ratio - 2.5) <= 0.16) return "film-edge";
+  if (Math.abs(ratio - 0.8) <= 0.08) return "chapter-pass";
+  return null;
+}
+
+export function shapeAllowedForKind(kind, shape) {
+  return kind === "universe" ? SHAPES.has(shape) : kind === "past" && shape !== "chapter-pass" && SHAPES.has(shape);
+}
+
+async function readPngShape(path) {
+  const bytes = await readFile(path);
+  const signature = "89504e470d0a1a0a";
+  if (bytes.length < 24 || bytes.subarray(0, 8).toString("hex") !== signature || bytes.subarray(12, 16).toString("ascii") !== "IHDR") return null;
+  return shapeFromDimensions(bytes.readUInt32BE(16), bytes.readUInt32BE(20));
+}
+
+async function validateTicketShape(data, image) {
+  const declared = data.design?.shapeStyle;
+  if (declared !== undefined && !SHAPES.has(declared)) return "JSON 中的票型未知";
+  const actual = await readPngShape(image);
+  if (!actual) return "PNG 尺寸不属于标准票型";
+  if (declared && declared !== actual) return "JSON 票型与 PNG 尺寸不一致";
+  const shape = declared || actual;
+  if (!shapeAllowedForKind(data.kind, shape)) return "过去篇仅接受幕间长票或胶片齿票";
+  return null;
+}
 
 function ticketStem(name) {
   return basename(name, extname(name)).replace(/-(main|preview)$/i, "");
@@ -70,6 +104,11 @@ export async function collectTickets(albumDir, inputs) {
         rejected.push({ file: basename(jsonPath), reason: "缺少同名 PNG" });
         continue;
       }
+      const shapeError = await validateTicketShape(data, image);
+      if (shapeError) {
+        rejected.push({ file: basename(jsonPath), reason: shapeError });
+        continue;
+      }
       const existed = byNumber.has(data.ticketNumber);
       const imageName = data.ticketNumber + ".png";
       const jsonName = data.ticketNumber + ".json";
@@ -110,17 +149,19 @@ export async function collectTickets(albumDir, inputs) {
   return { imported, updated, rejected };
 }
 
-const [albumDir, ...inputs] = process.argv.slice(2);
-if (!albumDir || !inputs.length) {
-  console.error("用法：collect-tickets.mjs <浮生录目录> <票根文件或目录...>");
-  process.exit(2);
-}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [albumDir, ...inputs] = process.argv.slice(2);
+  if (!albumDir || !inputs.length) {
+    console.error("用法：collect-tickets.mjs <浮生录目录> <票根文件或目录...>");
+    process.exit(2);
+  }
 
-try {
-  const result = await collectTickets(albumDir, inputs);
-  console.log(JSON.stringify(result));
-  if (!result.imported && !result.updated) process.exitCode = 1;
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  try {
+    const result = await collectTickets(albumDir, inputs);
+    console.log(JSON.stringify(result));
+    if (!result.imported && !result.updated) process.exitCode = 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }

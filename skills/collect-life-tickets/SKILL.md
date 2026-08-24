@@ -25,3 +25,4 @@ description: "将人生票根同名 PNG 与 JSON 收入已有《浮生录》，�
 - 同一 `ticketNumber` 再次收录时覆盖该票的 PNG、JSON 与清单记录，不产生重复票。
 - 过去票按发生时间排序，未来票按创建时间排序。
 - 不改写原始 JSON 内容；清单只提取页面显示需要的字段。
+- 导入时同时核对 JSON 的 `design.shapeStyle` 与 PNG 尺寸：过去只接受 `intermission-stub`、`film-edge`，未来接受全部三种；声明与图片不一致或 `past + chapter-pass` 时明确拒绝。
