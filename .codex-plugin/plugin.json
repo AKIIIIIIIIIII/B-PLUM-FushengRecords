@@ -1,0 +1,34 @@
+{
+  "name": "fusheng-records",
+  "version": "0.1.0",
+  "description": "将人生片段制成票根，并在本地完成造册、收录、样票植入与无损导出。",
+  "author": {
+    "name": "造册人",
+    "url": "https://b-plum.com/"
+  },
+  "homepage": "https://b-plum.com/",
+  "repository": "https://github.com/AKIIIIIIIIIII/fusheng-records",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": ["人生票根", "浮生录", "纪念册", "本地收藏"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "浮生录",
+    "shortDescription": "从人生出票到古籍造册、收录与导出的本地收藏工具",
+    "longDescription": "把往昔片段与未来愿望制成人生票根，建立本地互动古籍，植入样票、追加收藏，并将册内 PNG 与 JSON 完整导出。",
+    "developerName": "造册人",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://b-plum.com/",
+    "defaultPrompt": [
+      "帮我制作一张人生票根。",
+      "为我建立一本空白人生藏册。",
+      "用样票生成一本可浏览的《浮生录》。"
+    ],
+    "brandColor": "#A63D32",
+    "screenshots": [
+      "./docs/images/album-preview.png",
+      "./examples/tickets/LT-P-20260824-SNOW.png",
+      "./examples/tickets/LT-U-20260824-BOOK.png"
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "ticketNumber": "LT-P-20260824-SNOW",
+  "kind": "past",
+  "status": "ended",
+  "title": "第一次独自看雪",
+  "scene": "【虚构演示】2023年冬天，一个人站在东京安静的街角，看见细雪落在路灯和屋檐上。",
+  "time": {
+    "mode": "year",
+    "raw": "2023年",
+    "display": "2023"
+  },
+  "place": "东京",
+  "emotion": [
+    "安静",
+    "惊喜"
+  ],
+  "visualElements": [
+    "初雪",
+    "街灯",
+    "围巾",
+    "东京街角"
+  ],
+  "image": {
+    "source": "generated",
+    "concept": "一个人站在东京初雪中的安静街角，暖色街灯照亮围巾与飘落的雪。",
+    "prompt": "原创当代编辑插画，东京冬夜的安静街角，一个穿大衣围围巾的人在初雪中停步，暖色街灯、屋檐与细雪，低饱和石油蓝和烟陶土色，细炭黑墨线和平涂，无文字、数字、标志或水印。",
+    "referenceUsed": false
+  },
+  "design": {
+    "shapeStyle": "chapter-pass",
+    "layoutStyle": "chapter-poster",
+    "imageStyle": "symbolic-card-illustration",
+    "finishStyle": "modern-vintage-editorial",
+    "typographyStyle": "qiji-source-han"
+  },
+  "createdAt": "2026-08-24T12:00:00+09:00"
+}

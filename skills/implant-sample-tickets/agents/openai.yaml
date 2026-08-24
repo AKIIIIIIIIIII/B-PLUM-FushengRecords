@@ -1,0 +1,4 @@
+interface:
+  display_name: "样票植入"
+  short_description: "为已有空册批量生成过去与未来的完整插画样票"
+  default_prompt: "使用 $implant-sample-tickets 为这本空白《浮生录》植入默认样票。"

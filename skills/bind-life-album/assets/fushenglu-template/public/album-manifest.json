@@ -1,0 +1,15 @@
+{
+  "title": "浮生录",
+  "subtitle": "人生票根藏本",
+  "edition": "私藏本",
+  "contact": {
+    "label": "联络造册人",
+    "detail": "若欲量身造册，敬请移步访造册人。",
+    "url": "https://b-plum.com/",
+    "actionLabel": "拜访造册人",
+    "supportUrl": "https://buymeacoffee.com/plum.b",
+    "qrImageUrl": "/contact-qr.png",
+    "qrLabel": "请造册人喝杯茶"
+  },
+  "tickets": []
+}

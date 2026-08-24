@@ -1,0 +1,4 @@
+interface:
+  display_name: "导出票根"
+  short_description: "把册内 PNG 与 JSON 配对打包成可回收的 ZIP 备份"
+  default_prompt: "使用 $export-life-tickets 将这本《浮生录》的全部票根打包导出。"

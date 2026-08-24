@@ -1,0 +1,22 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/.next/
+**/dist/
+**/coverage/
+*.log
+
+# Local generation and private life records
+work/
+tmp/
+generated/
+albums/
+tickets/
+exports/
+*.zip
+
+# Keep the curated public examples
+!examples/
+!examples/**
