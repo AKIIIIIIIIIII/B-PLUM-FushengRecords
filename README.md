@@ -62,7 +62,7 @@
 
 如果它替你留住了一幕人生，可以[请造册人喝杯茶](https://buymeacoffee.com/plum.b)。打赏是自愿支持，不代表购买商业授权。
 
-商业使用、品牌合作、付费再分发或量身定制造册，请访问 [b-plum.com](https://b-plum.com/) 联系造册人。
+商业使用、付费再分发、品牌活动或客户项目需要另行获得书面授权，请通过 [https://b-plum.com/](https://b-plum.com/) 联系作者。
 
 ## 许可证
 
@@ -113,7 +113,7 @@ Albums are local by default. The plugin ships no developer API key, does not pub
 
 ### Support and commercial work
 
-You can [buy the maker a coffee](https://buymeacoffee.com/plum.b). Donations are voluntary support and do not grant a commercial license. For commercial use, brand collaborations, paid redistribution, or bespoke album work, contact the maker through [b-plum.com](https://b-plum.com/).
+You can [buy the maker a coffee](https://buymeacoffee.com/plum.b). Donations are voluntary support and do not grant a commercial license. Commercial use, paid redistribution, brand campaigns, and client work require separate written permission. Contact the author through [https://b-plum.com/](https://b-plum.com/).
 
 ### Licensing
 
