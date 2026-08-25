@@ -1,4 +1,4 @@
-# 浮生录 · Fusheng Records
+# B-PLUM-FushengRecords · 浮生录
 
 > 把发生过的事和想抵达的未来，制成一张值得收藏的人生票根。
 
@@ -31,7 +31,7 @@
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/AKIIIIIIIIIII/fusheng-records.git
+   git clone https://github.com/AKIIIIIIIIIII/B-PLUM-FushengRecords.git
    ```
 
 2. 在 ChatGPT 或 Codex 的 Plugins 页面添加本地插件来源，选择包含 `.codex-plugin/plugin.json` 的仓库根目录。
@@ -76,7 +76,7 @@
 
 ## English
 
-Fusheng Records is a local-first plugin for ChatGPT and Codex. It turns personal moments and gently framed future wishes into collectible life tickets, then keeps those PNG/JSON pairs inside an interactive book-inspired album.
+B-PLUM-FushengRecords is a local-first plugin for ChatGPT and Codex. It turns personal moments and gently framed future wishes into collectible life tickets, then keeps those PNG/JSON pairs inside an interactive book-inspired album.
 
 Past Memorial Tickets use two horizontal ticket shapes. Universe Order Tickets support those two plus the future-only vertical `chapter-pass` shape.
 
@@ -92,16 +92,16 @@ Past Memorial Tickets use two horizontal ticket shapes. Universe Order Tickets s
 ### Install
 
 ```bash
-git clone https://github.com/AKIIIIIIIIIII/fusheng-records.git
+git clone https://github.com/AKIIIIIIIIIII/B-PLUM-FushengRecords.git
 ```
 
-In the ChatGPT or Codex Plugins page, add a local plugin source and select the repository root containing `.codex-plugin/plugin.json`. Enable **Fusheng Records** and start a new task.
+In the ChatGPT or Codex Plugins page, add a local plugin source and select the repository root containing `.codex-plugin/plugin.json`. Enable **B-PLUM-FushengRecords** and start a new task.
 
 ### Example prompts
 
 ```text
 Make a life ticket for me.
-Create an empty Fusheng Records album.
+Create an empty B-PLUM-FushengRecords album.
 Build a browsable album with fictional sample tickets.
 Collect these tickets into my album.
 Export every ticket from the album.
