@@ -100,6 +100,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
   "design": {
     "shapeStyle": "intermission-stub",
     "layoutStyle": "stage-triptych",
+    "stampStyle": "floral-slip",
     "imageStyle": "symbolic-card-illustration",
     "finishStyle": "modern-vintage-editorial",
     "typographyStyle": "qiji-source-han"
@@ -115,6 +116,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 - `image.source`：`uploaded`、`generated`、`procedural`
 - `design.shapeStyle`：`intermission-stub`、`film-edge`、`chapter-pass`
 - `design.layoutStyle`：`stage-triptych`、`chapter-poster`
+- `design.stampStyle`：`floral-slip`（花笺长印）、`negative-square`（白文方印）、`broken-ring`（残环圆印）
 - `design.imageStyle`：固定为 `symbolic-card-illustration`
 - `design.finishStyle`：固定为 `modern-vintage-editorial`
 - `design.typographyStyle`：固定为 `qiji-source-han`（中文齐伋体，英文与数字思源宋体）
@@ -125,6 +127,8 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 - `universe`：允许 `intermission-stub`、`film-edge`、`chapter-pass`
 
 `chapter-pass` 是未来专属票形，不得写入往昔纪念票。
+
+正常对话流程必须在用户回复“出票”前把具体款式写入待出票数据：用户选择“随机”时，也要先解析成具体款式并展示给用户。仅为兼容旧 JSON 或手工 JSON，`design.stampStyle` 缺失时渲染器才根据 `ticketNumber` 稳定随机选择并写回；未知值必须报错，不能静默换款。
 
 当宇宙订单票选择不显示时间时，使用：
 
