@@ -37,6 +37,21 @@ SHAPES_BY_KIND = {
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 FONT_DIR = SKILL_ROOT / "assets" / "fonts"
 TICKET_STOCK_DIR = SKILL_ROOT / "assets" / "ticket-stock"
+STATUS_STAMP_DIR = SKILL_ROOT / "assets" / "status-stamps"
+
+STAMP_STYLES = ("floral-slip", "negative-square", "broken-ring")
+STAMP_BOUNDS = {
+    "stage-triptych": {
+        "floral-slip": (82, 220),
+        "negative-square": (142, 142),
+        "broken-ring": (148, 148),
+    },
+    "chapter-poster": {
+        "floral-slip": (82, 210),
+        "negative-square": (142, 142),
+        "broken-ring": (148, 148),
+    },
+}
 
 PALETTES = {
     "warm": {
@@ -92,6 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Directory for PNG and JSON")
     parser.add_argument("--image", help="Optional generated image or user photo")
     parser.add_argument("--shape", choices=sorted(SHAPES), help="Override shape style")
+    parser.add_argument("--stamp-style", choices=STAMP_STYLES, help="Override status-stamp style")
     parser.add_argument("--preview-white", help="Optional white-background PNG for material inspection")
     return parser.parse_args()
 
@@ -124,9 +140,13 @@ def seed_from(data: dict[str, Any]) -> int:
     return int(digest[:16], 16)
 
 
-def choose_design(data: dict[str, Any], override: str | None) -> tuple[str, str]:
+def choose_design(
+    data: dict[str, Any],
+    shape_override: str | None,
+    stamp_override: str | None,
+) -> tuple[str, str, str]:
     design = data.setdefault("design", {})
-    shape = override or design.get("shapeStyle")
+    shape = shape_override or design.get("shapeStyle")
     allowed_shapes = SHAPES_BY_KIND[data["kind"]]
     if shape not in SHAPES:
         shape = allowed_shapes[seed_from(data) % len(allowed_shapes)]
@@ -135,10 +155,16 @@ def choose_design(data: dict[str, Any], override: str | None) -> tuple[str, str]
     layout = SHAPES[shape][1]
     design["shapeStyle"] = shape
     design["layoutStyle"] = layout
+    stamp_style = stamp_override or design.get("stampStyle")
+    if stamp_style is None:
+        stamp_style = STAMP_STYLES[(seed_from(data) // 7) % len(STAMP_STYLES)]
+    elif stamp_style not in STAMP_STYLES:
+        raise ValueError(f"Unknown stampStyle: {stamp_style}")
+    design["stampStyle"] = stamp_style
     design["imageStyle"] = "symbolic-card-illustration"
     design["finishStyle"] = "modern-vintage-editorial"
     design["typographyStyle"] = "qiji-source-han"
-    return shape, layout
+    return shape, layout, stamp_style
 
 
 def font_candidates(role: str) -> list[str]:
@@ -666,28 +692,31 @@ def draw_accent_frame(draw: ImageDraw.ImageDraw, size: tuple[int, int], palette:
     draw.rounded_rectangle((inset, inset, width - inset, height - inset), radius=12, outline=palette["ticketAccentDark"], width=2)
 
 
-def draw_status_stamp(
-    draw: ImageDraw.ImageDraw,
+def place_status_stamp(
+    image: Image.Image,
     center: tuple[int, int],
-    radius: int,
+    layout: str,
+    stamp_style: str,
     status: str,
-    palette: dict[str, str],
 ) -> None:
-    cx, cy = center
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), outline=palette["ticketAccentDark"], width=3)
-    draw.ellipse((cx - radius + 7, cy - radius + 7, cx + radius - 7, cy + radius - 7), outline=palette["ticketAccentLight"], width=1)
-    draw_text_box(
-        draw,
-        status,
-        (cx - radius + 12, cy - 34, cx + radius - 12, cy + 34),
-        palette["ticketAccentDark"],
-        max_size=35,
-        min_size=25,
-        max_lines=1,
-        align="center",
-        valign="center",
-        role="display",
-    )
+    if stamp_style not in STAMP_STYLES:
+        raise ValueError(f"Unknown stampStyle: {stamp_style}")
+    if status not in {"ended", "ordered"}:
+        raise ValueError(f"Unsupported status for stamp asset: {status}")
+    path = STATUS_STAMP_DIR / f"{stamp_style}-{status}.png"
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing status-stamp asset: {path}")
+    with Image.open(path) as source:
+        if "A" not in source.getbands():
+            raise ValueError(f"Status-stamp asset must have transparency: {path}")
+        stamp = source.convert("RGBA")
+    if stamp.getchannel("A").getbbox() is None:
+        raise ValueError(f"Status-stamp asset is blank: {path}")
+    max_width, max_height = STAMP_BOUNDS[layout][stamp_style]
+    stamp.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+    x = center[0] - stamp.width // 2
+    y = center[1] - stamp.height // 2
+    image.alpha_composite(stamp, (x, y))
 
 
 def editorial_art(art: Image.Image, size: tuple[int, int], palette: dict[str, str], centering: tuple[float, float] = (0.5, 0.5)) -> Image.Image:
@@ -732,6 +761,7 @@ def render_triptych(
     shape: str,
     palette: dict[str, str],
     art: Image.Image,
+    stamp_style: str,
 ) -> None:
     width, height = image.size
     draw = ImageDraw.Draw(image)
@@ -739,7 +769,7 @@ def render_triptych(
     margin = max(44, height // 12)
     x_left = int(width * 0.345)
     x_art_end = int(width * 0.795)
-    ticket_type, status, date_label = labels(data)
+    ticket_type, _, date_label = labels(data)
     time = data.get("time", {})
     time_hidden = time.get("mode") == "hidden"
 
@@ -796,7 +826,8 @@ def render_triptych(
     draw = ImageDraw.Draw(image)
     draw_dotted_line(draw, (divider_x, margin + 2), (divider_x, height - margin - 2), ink, width=1, gap=8)
     rail_center = ((divider_x + width - margin) // 2, int(height * 0.28))
-    draw_status_stamp(draw, rail_center, max(58, height // 9), status, palette)
+    place_status_stamp(image, rail_center, "stage-triptych", stamp_style, str(data["status"]))
+    draw = ImageDraw.Draw(image)
     rail_left = divider_x + 30
     rail_right = width - margin - 24
     date_label_y = int(height * 0.56)
@@ -829,12 +860,13 @@ def render_poster(
     data: dict[str, Any],
     palette: dict[str, str],
     art: Image.Image,
+    stamp_style: str,
 ) -> None:
     width, height = image.size
     draw = ImageDraw.Draw(image)
     ink = palette["ink"]
     margin = 68
-    ticket_type, status, date_label = labels(data)
+    ticket_type, _, date_label = labels(data)
     time = data.get("time", {})
     time_hidden = time.get("mode") == "hidden"
 
@@ -858,7 +890,8 @@ def render_poster(
     draw_dotted_line(draw, (margin + 18, 365), (width - margin - 18, 365), ink, width=1, gap=10)
     micro_label(draw, margin + 55, title_label_y, "这一幕", palette["ticketAccentDark"], 21)
     draw_text_box(draw, str(data["title"]), (margin + 55, title_top, title_right, 640), ink, max_size=110, min_size=58, max_lines=3, role="display", valign="center")
-    draw_status_stamp(draw, (width - margin - 116, 532), 56, status, palette)
+    place_status_stamp(image, (width - margin - 116, 532), "chapter-poster", stamp_style, str(data["status"]))
+    draw = ImageDraw.Draw(image)
 
     # Layout lock: retain the original vermilion image frame for chapter tickets.
     draw.rectangle((art_box[0] - 12, art_box[1] + 12, art_box[2] - 12, art_box[3] + 12), outline=palette["ticketAccentDark"], width=8)
@@ -903,6 +936,7 @@ def render_poster(
 def render(
     data: dict[str, Any],
     shape: str,
+    stamp_style: str,
     image_path: Path | None,
 ) -> Image.Image:
     size = SHAPES[shape][0]
@@ -923,9 +957,9 @@ def render(
     art = get_art(art_size, data, palette, seed + 11, image_path)
 
     if layout == "stage-triptych":
-        render_triptych(ticket, data, shape, palette, art)
+        render_triptych(ticket, data, shape, palette, art, stamp_style)
     else:
-        render_poster(ticket, data, palette, art)
+        render_poster(ticket, data, palette, art, stamp_style)
 
     # A low-contrast environmental shadow gives the die-cut stock physical depth
     # against transparency. It is intentionally soft and shallow, never a floating card.
@@ -955,10 +989,10 @@ def main() -> int:
     image_path = Path(args.image).expanduser().resolve() if args.image else None
     data = read_json(input_path)
     validate(data)
-    shape, _ = choose_design(data, args.shape)
+    shape, _, stamp_style = choose_design(data, args.shape, args.stamp_style)
 
     png_path, json_path = ensure_output_paths(output_dir, str(data["ticketNumber"]), input_path)
-    result = render(data, shape, image_path)
+    result = render(data, shape, stamp_style, image_path)
     result.save(png_path, "PNG", optimize=True)
     if args.preview_white:
         preview_path = Path(args.preview_white).expanduser().resolve()
@@ -969,7 +1003,7 @@ def main() -> int:
     with json_path.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
-    print(json.dumps({"png": str(png_path), "json": str(json_path), "shape": shape, "size": list(result.size)}, ensure_ascii=False))
+    print(json.dumps({"png": str(png_path), "json": str(json_path), "shape": shape, "stampStyle": stamp_style, "size": list(result.size)}, ensure_ascii=False))
     return 0
 
 
