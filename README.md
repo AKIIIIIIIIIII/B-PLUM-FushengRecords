@@ -67,7 +67,6 @@
 ## 许可证
 
 - 软件代码：[`PolyForm Noncommercial 1.0.0`](LICENSE)，个人及非商用免费；商业使用需另行书面授权。
-- 原创文档、截图和示例图像：[`CC BY-NC 4.0`](LICENSE-CONTENT.md)。
 - 内置字体：各自遵循 `SIL Open Font License 1.1`，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 由于禁止商业使用，本项目准确地说是“源码公开 / source-available”，并非 OSI 定义下的开源软件。
@@ -118,7 +117,6 @@ You can [buy the maker a coffee](https://buymeacoffee.com/plum.b). Donations are
 ### Licensing
 
 - Software: [PolyForm Noncommercial 1.0.0](LICENSE).
-- Original documentation, screenshots, and example artwork: [CC BY-NC 4.0](LICENSE-CONTENT.md).
 - Bundled fonts retain their SIL Open Font License 1.1 terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Because commercial use is restricted, this project is source-available rather than OSI-approved open source.
@@ -126,3 +124,7 @@ Because commercial use is restricted, this project is source-available rather th
 ## License scope
 
 The software is released under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). Original documentation, screenshots, and example artwork are covered separately by LICENSE-CONTENT.md. Third-party fonts and other external materials remain under their respective licenses.
+
+## License scope
+
+The software is released under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). Unless explicitly stated otherwise, documentation, screenshots, and example artwork are not separately licensed and remain protected by copyright. Third-party fonts and other external materials remain under their respective licenses.
