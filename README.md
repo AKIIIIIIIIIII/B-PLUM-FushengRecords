@@ -2,19 +2,19 @@
 
 > 把发生过的事和想抵达的未来，制成一张值得收藏的人生票根。
 
-《浮生录》是一个面向 ChatGPT 与 Codex 的本地优先插件。它把自然语言故事转译为复古收藏票根，并将票根收进可浏览的互动古籍。插件包含出票、造册、收录、样票植入和无损导出等完整工作流。
+《浮生录》把你讲述的一幕人生做成复古票根，再收进一本可以翻阅的互动古籍。它是一个面向 ChatGPT 与 Codex 的本地优先插件：你可以只做一张票，也可以从故事开始，一路做到成册和导出。
 
 ![浮生录演示](docs/images/album-preview.png)
 
-## 可以做什么
+## 它会做这些事
 
-- 制作“往昔纪念票”，收藏已经发生的人生片段。
-- 制作“宇宙订单票”，温柔记录希望体验或抵达的一幕，不把愿望描述为结果保证。
-- 往昔纪念票使用两种横向长票；宇宙订单票在此基础上增加未来专属的竖向章节方票，共三种。
-- 建立默认本地运行的互动古籍藏册。
-- 将同名 PNG 与 JSON 票根收录进藏册。
-- 植入完全虚构的演示票，方便测试和展示。
-- 将藏册中的票根无损导出为 ZIP。
+- 把已经发生的人生片段做成“往昔纪念票”。
+- 把希望体验或抵达的一幕写进“宇宙订单票”。它记录愿望，但不承诺结果。
+- 在两种横向长票之外，为未来篇制作专属的竖向章节方票。
+- 建立一本默认在本地运行的互动古籍藏册。
+- 将同名的 PNG 与 JSON 票根成对收录，原始文件不会被重绘或裁切。
+- 植入明确标注为虚构内容的演示票，用来测试或展示。
+- 把藏册里的票根打包成 ZIP，方便备份和迁移。
 
 ## 效果示例
 
@@ -24,7 +24,7 @@
 | --- | --- |
 | ![第一次独自看雪](examples/tickets/LT-P-20260824-SNOW.png) | ![写完一本书](examples/tickets/LT-U-20260824-BOOK.png) |
 
-每张正式票根都由同名 PNG 与 JSON 组成，结构说明见 [`skills/make-life-ticket/references/ticket-data.md`](skills/make-life-ticket/references/ticket-data.md)。
+一张正式票根包含两个同名文件：PNG 是票面，JSON 保存可再次读取的数据。字段说明见 [`skills/make-life-ticket/references/ticket-data.md`](skills/make-life-ticket/references/ticket-data.md)。
 
 ## 安装
 
@@ -35,9 +35,9 @@
    ```
 
 2. 在 ChatGPT 或 Codex 的 Plugins 页面添加本地插件来源，选择包含 `.codex-plugin/plugin.json` 的仓库根目录。
-3. 启用“浮生录”，然后在新任务中使用下面的提示词。
+3. 启用“浮生录”，新建一个任务，然后直接说你想做什么。
 
-本仓库提供插件源码和本地安装包；提交到官方公共插件目录是单独的审核流程，不包含在本次发布中。
+这个仓库用于查看源码和本地安装。若要进入官方公共插件目录，仍需单独提交审核。
 
 ## 使用示例
 
@@ -49,18 +49,18 @@
 导出藏册里的全部票根。
 ```
 
-插件会在生成个人票根前整理出票单并等待明确确认；样票始终标注为虚构演示。
+制作个人票根时，插件会先整理一份出票单。只有你明确回复“出票”，它才会生成文件。样票则始终标注为虚构演示，不会冒充你的经历。
 
 ## 隐私与数据
 
-- 默认在本地创建和保存藏册，不主动发布到互联网。
-- 插件不内置开发者 API Key，也不会要求把个人密钥写入仓库。
-- 用户照片不会被复制进插件，票根 JSON 不保存照片路径或二进制内容。
+- 藏册默认在本地创建和保存，插件不会自行发布到互联网。
+- 插件不内置开发者 API Key，也不会让你把个人密钥写进仓库。
+- 你的照片不会被复制进插件；票根 JSON 也不保存照片路径或二进制内容。
 - 请勿把包含真实个人经历的生成目录直接提交到公开仓库。
 
 ## 支持与商业定制
 
-如果它替你留住了一幕人生，可以[请造册人喝杯茶](https://buymeacoffee.com/plum.b)。打赏是自愿支持，不代表购买商业授权。
+如果《浮生录》替你留住了一幕人生，可以[请造册人喝杯茶](https://buymeacoffee.com/plum.b)。这只是自愿支持，不等同于购买商业授权。
 
 商业使用、付费再分发、品牌活动或客户项目需要另行获得书面授权，请通过 [https://b-plum.com/](https://b-plum.com/) 联系作者。
 
@@ -75,18 +75,18 @@
 
 ## English
 
-B-PLUM-FushengRecords is a local-first plugin for ChatGPT and Codex. It turns personal moments and gently framed future wishes into collectible life tickets, then keeps those PNG/JSON pairs inside an interactive book-inspired album.
+B-PLUM-FushengRecords turns a story from your life into a collectible ticket, then places it in an interactive album styled after a traditional Chinese book. It runs locally by default and works with both ChatGPT and Codex. You can stop after one ticket or carry the whole collection into an album and export it.
 
-Past Memorial Tickets use two horizontal ticket shapes. Universe Order Tickets support those two plus the future-only vertical `chapter-pass` shape.
+Past Memorial Tickets come in two horizontal formats. Universe Order Tickets can use either of those or the vertical `chapter-pass` format made for the future chapter.
 
 ### Features
 
-- Create Past Memorial Tickets for moments that already happened.
-- Create Universe Order Tickets for experiences you hope to reach, without promising outcomes.
-- Build a local interactive album.
-- Collect matching PNG and JSON ticket pairs.
-- Add clearly fictional sample tickets for demonstrations and testing.
-- Export all tickets without altering the originals.
+- Turn something that happened into a Past Memorial Ticket.
+- Record a hoped-for experience as a Universe Order Ticket, without treating the wish as a promise.
+- Build an interactive album that stays local by default.
+- Keep each ticket's PNG and JSON together, without redrawing or cropping the original image.
+- Add clearly fictional sample tickets for testing or demonstrations.
+- Export the album as a ZIP without changing the source files.
 
 ### Install
 
@@ -94,7 +94,7 @@ Past Memorial Tickets use two horizontal ticket shapes. Universe Order Tickets s
 git clone https://github.com/AKIIIIIIIIIII/B-PLUM-FushengRecords.git
 ```
 
-In the ChatGPT or Codex Plugins page, add a local plugin source and select the repository root containing `.codex-plugin/plugin.json`. Enable **B-PLUM-FushengRecords** and start a new task.
+In the ChatGPT or Codex Plugins page, add a local plugin source and select the repository root containing `.codex-plugin/plugin.json`. Enable **B-PLUM-FushengRecords**, start a new task, and tell it what you want to make.
 
 ### Example prompts
 
@@ -108,11 +108,11 @@ Export every ticket from the album.
 
 ### Privacy
 
-Albums are local by default. The plugin ships no developer API key, does not publish automatically, and does not store user-photo paths or binary data in ticket JSON. Do not commit private generated albums to a public repository.
+Albums stay local unless you choose to publish them. The plugin ships without a developer API key and never asks you to commit a personal key. It does not copy user photos into the plugin or store photo paths and binary data in ticket JSON. Keep generated albums with private stories out of public repositories.
 
 ### Support and commercial work
 
-You can [buy the maker a coffee](https://buymeacoffee.com/plum.b). Donations are voluntary support and do not grant a commercial license. Commercial use, paid redistribution, brand campaigns, and client work require separate written permission. Contact the author through [https://b-plum.com/](https://b-plum.com/).
+If Fusheng Records helped you keep a moment, you can [buy the maker a coffee](https://buymeacoffee.com/plum.b). This is voluntary support, not a commercial license. Commercial use, paid redistribution, brand campaigns, and client work require separate written permission. Contact the author through [https://b-plum.com/](https://b-plum.com/).
 
 ### Licensing
 
