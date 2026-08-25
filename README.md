@@ -122,3 +122,7 @@ You can [buy the maker a coffee](https://buymeacoffee.com/plum.b). Donations are
 - Bundled fonts retain their SIL Open Font License 1.1 terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Because commercial use is restricted, this project is source-available rather than OSI-approved open source.
+
+## License scope
+
+The software is released under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). Original documentation, screenshots, and example artwork are covered separately by LICENSE-CONTENT.md. Third-party fonts and other external materials remain under their respective licenses.
