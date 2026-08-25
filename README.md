@@ -123,8 +123,4 @@ Because commercial use is restricted, this project is source-available rather th
 
 ## License scope
 
-The software is released under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). Original documentation, screenshots, and example artwork are covered separately by LICENSE-CONTENT.md. Third-party fonts and other external materials remain under their respective licenses.
-
-## License scope
-
 The software is released under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). Unless explicitly stated otherwise, documentation, screenshots, and example artwork are not separately licensed and remain protected by copyright. Third-party fonts and other external materials remain under their respective licenses.
