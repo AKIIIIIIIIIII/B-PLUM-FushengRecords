@@ -488,6 +488,76 @@ def draw_person(draw: ImageDraw.ImageDraw, x: int, ground: int, scale: float, co
     draw.line((x + int(12 * scale), ground - int(25 * scale), x + int(18 * scale), ground), fill=color, width=max(2, int(5 * scale)))
 
 
+def scene_words(data: dict[str, Any]) -> str:
+    """Combine user-provided scene fields for deterministic scene matching."""
+    parts = [str(data.get("scene", "")), str(data.get("place", ""))]
+    parts.extend(str(item) for item in data.get("visualElements", []))
+    return " ".join(parts).lower()
+
+
+def is_claw_machine_scene(data: dict[str, Any]) -> bool:
+    words = scene_words(data)
+    return any(token in words for token in ("娃娃机", "抓娃娃", "夹娃娃", "机械爪", "抓到玩偶"))
+
+
+def draw_claw_machine_scene(
+    draw: ImageDraw.ImageDraw,
+    size: tuple[int, int],
+    palette: dict[str, str],
+) -> None:
+    """Draw a generic claw-machine moment without reproducing a branded character."""
+    width, height = size
+    ink = palette["ink"]
+    machine = (int(width * 0.08), int(height * 0.07), int(width * 0.92), int(height * 0.93))
+    glass = (int(width * 0.16), int(height * 0.17), int(width * 0.84), int(height * 0.72))
+    yellow = "#D9AE35"
+    goggle = "#C9CDC6"
+
+    draw.rectangle((0, 0, width, height), fill=palette["light"])
+    draw.rounded_rectangle(machine, radius=max(16, width // 28), fill=palette["paper"], outline=ink, width=4)
+    draw.rectangle((machine[0] + 12, machine[1] + 14, machine[2] - 12, int(height * 0.15)), fill=palette["accent"])
+    draw.rounded_rectangle(glass, radius=10, fill="#E7DFC9", outline=ink, width=4)
+
+    # A restrained set of reflections gives the glass enclosure depth without text.
+    draw.line((glass[0] + 24, glass[1] + 18, glass[0] + 90, glass[1] + 96), fill=palette["light"], width=5)
+    draw.line((glass[2] - 52, glass[1] + 22, glass[2] - 18, glass[1] + 70), fill=palette["light"], width=3)
+
+    center_x = width // 2
+    cord_bottom = int(height * 0.36)
+    draw.line((center_x, glass[1] + 10, center_x, cord_bottom), fill=ink, width=4)
+    draw.ellipse((center_x - 15, cord_bottom - 15, center_x + 15, cord_bottom + 15), fill=palette["accent"], outline=ink, width=3)
+    for angle in (115, 90, 65):
+        radians = math.radians(angle)
+        start_x = center_x + int(math.cos(radians) * 10)
+        start_y = cord_bottom + int(math.sin(radians) * 10)
+        end_x = center_x + int(math.cos(radians) * 64)
+        end_y = cord_bottom + int(math.sin(radians) * 64)
+        draw.line((start_x, start_y, end_x, end_y), fill=ink, width=4)
+        draw.line((end_x, end_y, end_x + int(math.cos(radians + 0.55) * 20), end_y + int(math.sin(radians + 0.55) * 20)), fill=ink, width=3)
+
+    # Generic yellow plush with goggles: it conveys the user's moment but carries no logo or brand mark.
+    toy_x, toy_y = center_x, int(height * 0.53)
+    draw.ellipse((toy_x - 46, toy_y - 52, toy_x + 46, toy_y + 62), fill=yellow, outline=ink, width=4)
+    draw.ellipse((toy_x - 42, toy_y - 78, toy_x + 42, toy_y - 2), fill=yellow, outline=ink, width=4)
+    for offset in (-19, 19):
+        draw.ellipse((toy_x + offset - 18, toy_y - 51, toy_x + offset + 18, toy_y - 15), fill=goggle, outline=ink, width=3)
+        draw.ellipse((toy_x + offset - 8, toy_y - 41, toy_x + offset + 8, toy_y - 25), fill=palette["paper"], outline=ink, width=2)
+    draw.arc((toy_x - 18, toy_y - 5, toy_x + 18, toy_y + 24), 10, 170, fill=ink, width=3)
+    draw.line((toy_x - 42, toy_y + 25, toy_x - 72, toy_y + 2), fill=ink, width=4)
+    draw.line((toy_x + 42, toy_y + 25, toy_x + 72, toy_y + 2), fill=ink, width=4)
+
+    # Prize chute and scattered toy silhouettes anchor the event inside the machine.
+    chute = (int(width * 0.24), int(height * 0.75), int(width * 0.76), int(height * 0.88))
+    draw.rounded_rectangle(chute, radius=12, fill=palette["deep"], outline=ink, width=4)
+    draw.rounded_rectangle((chute[0] + 12, chute[1] + 12, chute[2] - 12, chute[3] - 12), radius=8, fill=palette["light"], outline=palette["ticketAccentLight"], width=2)
+    for x, radius in ((int(width * 0.25), 19), (int(width * 0.75), 17), (int(width * 0.19), 12)):
+        y = int(height * 0.66) + (x % 17)
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=palette["accent2"], outline=ink, width=2)
+
+    for x, y in ((int(width * 0.22), int(height * 0.28)), (int(width * 0.78), int(height * 0.34)), (int(width * 0.70), int(height * 0.20))):
+        draw_star(draw, (x, y), max(8, width // 40), palette["ticketAccent"], points=6)
+
+
 def draw_motif(draw: ImageDraw.ImageDraw, keyword: str, x: int, y: int, scale: int, palette: dict[str, str]) -> None:
     word = keyword.lower()
     ink = palette["ink"]
@@ -533,6 +603,15 @@ def procedural_art(size: tuple[int, int], data: dict[str, Any], palette: dict[st
     rng = random.Random(seed)
     image = Image.new("RGBA", size, palette["light"])
     draw = ImageDraw.Draw(image)
+
+    if is_claw_machine_scene(data):
+        draw_claw_machine_scene(draw, size, palette)
+        border = max(10, min(width, height) // 30)
+        draw.rectangle((border, border, width - border, height - border), outline=palette["ink"], width=max(2, border // 4))
+        draw.rectangle((border * 2, border * 2, width - border * 2, height - border * 2), outline=palette["ink"], width=1)
+        alpha = Image.new("L", size, 255)
+        add_paper_texture(image, alpha, seed + 73, strength=15)
+        return image
 
     horizon = int(height * 0.67)
     draw.rectangle((0, 0, width, horizon), fill=palette["paper"])
