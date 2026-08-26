@@ -101,6 +101,12 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
     "shapeStyle": "intermission-stub",
     "layoutStyle": "stage-triptych",
     "stampStyle": "floral-slip",
+    "eventDoodle": {
+      "keyword": "雪",
+      "style": "broken-ink-doodle",
+      "placement": "place-record-side",
+      "status": "generated"
+    },
     "imageStyle": "symbolic-card-illustration",
     "finishStyle": "modern-vintage-editorial",
     "typographyStyle": "qiji-source-han"
@@ -117,6 +123,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 - `design.shapeStyle`：`intermission-stub`、`film-edge`、`chapter-pass`
 - `design.layoutStyle`：`stage-triptych`、`chapter-poster`
 - `design.stampStyle`：`floral-slip`（花笺长印）、`negative-square`（白文方印）、`broken-ring`（残环圆印）
+- `design.eventDoodle`：可选对象；`keyword` 为已确认的事件关键词，`style` 固定为 `broken-ink-doodle`，`placement` 为长票的 `place-record-side` 或方票的 `place-side`，`status` 为 `generated`、`skipped` 或 `none`
 - `design.imageStyle`：固定为 `symbolic-card-illustration`
 - `design.finishStyle`：固定为 `modern-vintage-editorial`
 - `design.typographyStyle`：固定为 `qiji-source-han`（中文齐伋体，英文与数字思源宋体）

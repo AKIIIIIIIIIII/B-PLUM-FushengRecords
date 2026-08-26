@@ -40,6 +40,8 @@ TICKET_STOCK_DIR = SKILL_ROOT / "assets" / "ticket-stock"
 STATUS_STAMP_DIR = SKILL_ROOT / "assets" / "status-stamps"
 
 STAMP_STYLES = ("floral-slip", "negative-square", "broken-ring")
+EVENT_DOODLE_STYLE = "broken-ink-doodle"
+EVENT_DOODLE_STATUSES = {"generated", "skipped", "none"}
 STAMP_BOUNDS = {
     "stage-triptych": {
         "floral-slip": (82, 220),
@@ -106,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Confirmed ticket JSON path")
     parser.add_argument("--output-dir", required=True, help="Directory for PNG and JSON")
     parser.add_argument("--image", help="Optional generated image or user photo")
+    parser.add_argument("--doodle", help="Optional generated transparent event-doodle PNG")
     parser.add_argument("--shape", choices=sorted(SHAPES), help="Override shape style")
     parser.add_argument("--stamp-style", choices=STAMP_STYLES, help="Override status-stamp style")
     parser.add_argument("--require-image", action="store_true", help="Fail instead of using procedural art when --image is missing")
@@ -166,6 +169,60 @@ def choose_design(
     design["finishStyle"] = "modern-vintage-editorial"
     design["typographyStyle"] = "qiji-source-han"
     return shape, layout, stamp_style
+
+
+def infer_doodle_keyword(data: dict[str, Any]) -> str | None:
+    """Prefer an explicit visual element before falling back to scene or place."""
+    for value in data.get("visualElements", []):
+        keyword = str(value).strip()
+        if keyword:
+            return keyword[:24]
+    for value in (data.get("scene"), data.get("place")):
+        keyword = str(value or "").strip()
+        if keyword:
+            return keyword[:24]
+    return None
+
+
+def resolve_event_doodle(
+    data: dict[str, Any],
+    layout: str,
+    doodle_path: Path | None,
+) -> dict[str, Any] | None:
+    """Validate persistent doodle metadata and enforce explicit asset handoff."""
+    design = data.setdefault("design", {})
+    doodle = design.get("eventDoodle")
+    placement = "place-record-side" if layout == "stage-triptych" else "place-side"
+    if doodle is None:
+        if doodle_path is None:
+            return None
+        keyword = infer_doodle_keyword(data)
+        if not keyword:
+            raise ValueError("Cannot generate an event doodle without a visual keyword")
+        doodle = {
+            "keyword": keyword,
+            "style": EVENT_DOODLE_STYLE,
+            "placement": placement,
+            "status": "generated",
+        }
+        design["eventDoodle"] = doodle
+    if not isinstance(doodle, dict):
+        raise ValueError("design.eventDoodle must be an object")
+    status = doodle.get("status", "generated")
+    if status not in EVENT_DOODLE_STATUSES:
+        raise ValueError(f"Unknown eventDoodle status: {status}")
+    if doodle.get("style", EVENT_DOODLE_STYLE) != EVENT_DOODLE_STYLE:
+        raise ValueError(f"Unknown eventDoodle style: {doodle.get('style')}")
+    if status == "generated":
+        if not str(doodle.get("keyword", "")).strip():
+            raise ValueError("Generated eventDoodle requires a keyword")
+        if doodle_path is None:
+            raise ValueError("Generated eventDoodle requires --doodle")
+        doodle["style"] = EVENT_DOODLE_STYLE
+        doodle["placement"] = placement
+    elif doodle_path is not None:
+        raise ValueError(f"eventDoodle status {status} must not receive --doodle")
+    return doodle
 
 
 def font_candidates(role: str) -> list[str]:
@@ -802,6 +859,39 @@ def place_status_stamp(
     image.alpha_composite(stamp, (x, y))
 
 
+def load_event_doodle(path: Path) -> Image.Image:
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing event-doodle asset: {path}")
+    with Image.open(path) as source:
+        if "A" not in source.getbands():
+            raise ValueError(f"Event-doodle asset must have transparency: {path}")
+        doodle = source.convert("RGBA")
+    if doodle.getchannel("A").getbbox() is None:
+        raise ValueError(f"Event-doodle asset is blank: {path}")
+    return doodle
+
+
+def place_event_doodle(
+    image: Image.Image,
+    doodle: Image.Image | None,
+    box: tuple[int, int, int, int] | None,
+) -> bool:
+    """Composite a generated transparent doodle while preserving its safe padding."""
+    if doodle is None or box is None:
+        return False
+    left, top, right, bottom = box
+    if right - left < 42 or bottom - top < 42:
+        return False
+    mark = doodle.copy()
+    mark.thumbnail((right - left, bottom - top), Image.Resampling.LANCZOS)
+    alpha = mark.getchannel("A").point(lambda value: int(value * 0.84))
+    mark.putalpha(alpha)
+    x = left + (right - left - mark.width) // 2
+    y = top + (bottom - top - mark.height) // 2
+    image.alpha_composite(mark, (x, y))
+    return True
+
+
 def editorial_art(art: Image.Image, size: tuple[int, int], palette: dict[str, str], centering: tuple[float, float] = (0.5, 0.5)) -> Image.Image:
     fitted = crop_cover(art, size, centering=centering)
     gray = ImageOps.grayscale(fitted)
@@ -845,7 +935,8 @@ def render_triptych(
     palette: dict[str, str],
     art: Image.Image,
     stamp_style: str,
-) -> None:
+    doodle: Image.Image | None,
+) -> bool:
     width, height = image.size
     draw = ImageDraw.Draw(image)
     ink = palette["ink"]
@@ -881,19 +972,21 @@ def render_triptych(
         micro_label(draw, margin + 42, int(height * 0.23), "这一幕", palette["ticketAccentDark"], 19)
         draw_text_box(draw, str(data["title"]), (margin + 42, int(height * 0.29), x_left - 30, int(height * 0.60)), ink, max_size=68, min_size=38, max_lines=3, role="display")
     else:
-        micro_label(draw, margin + 42, int(height * 0.20), "时间", palette["ticketAccentDark"], 18)
+        micro_label(draw, margin + 42, int(height * 0.20), "时间", palette["ticketAccentDark"], 22)
         time_display = str(time.get("display", ""))
         time_role = "sans" if any(char.isdigit() or char.isascii() and char.isalpha() for char in time_display) else "display"
-        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=59, min_size=36, max_lines=2, role=time_role)
+        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=47, min_size=30, max_lines=2, role=time_role)
 
     place_y = int(height * 0.48) if not time_hidden else int(height * 0.64)
-    micro_label(draw, margin + 42, place_y, "地点", palette["ticketAccentDark"], 17)
-    draw_text_box(draw, str(data["place"]), (margin + 42, place_y + 32, x_left - 30, place_y + 92), ink, max_size=35, min_size=24, max_lines=2, role="display")
+    doodle_box = (x_left - 175, place_y, x_left - 35, place_y + 140) if doodle is not None else None
+    detail_right = (doodle_box[0] - 16) if doodle_box else (x_left - 30)
+    micro_label(draw, margin + 42, place_y, "地点", palette["ticketAccentDark"], 21)
+    draw_text_box(draw, str(data["place"]), (margin + 42, place_y + 34, detail_right, place_y + 105), ink, max_size=42, min_size=28, max_lines=2, role="display")
     note = data.get("note")
     if note:
         note_y = int(height * 0.66)
-        micro_label(draw, margin + 42, note_y, "记录", palette["ticketAccentDark"], 16)
-        draw_text_box(draw, str(note), (margin + 42, note_y + 31, x_left - 30, height - margin - 12), palette["deep"], max_size=28, min_size=20, max_lines=3, role="display")
+        micro_label(draw, margin + 42, note_y, "记录", palette["ticketAccentDark"], 21)
+        draw_text_box(draw, str(note), (margin + 42, note_y + 34, detail_right, height - margin - 12), palette["deep"], max_size=34, min_size=23, max_lines=3, role="display")
 
     if not time_hidden:
         band_y = int(height * 0.67)
@@ -932,10 +1025,12 @@ def render_triptych(
     draw.text((rail_left, number_label_y + 38), ticket_number, font=serial_font, fill=ink)
 
     draw_scene_thread(draw, (margin + 48, int(height * 0.46)), (art_box[0] + 44, int(height * 0.40)), palette["ticketAccent"])
+    doodle_placed = place_event_doodle(image, doodle, doodle_box)
 
     if shape == "intermission-stub":
         draw_dotted_line(draw, (int(width * 0.79), margin), (int(width * 0.79), height - margin), ink, width=2, gap=8)
     draw_accent_frame(draw, image.size, palette)
+    return doodle_placed
 
 
 def render_poster(
@@ -944,7 +1039,8 @@ def render_poster(
     palette: dict[str, str],
     art: Image.Image,
     stamp_style: str,
-) -> None:
+    doodle: Image.Image | None,
+) -> bool:
     width, height = image.size
     draw = ImageDraw.Draw(image)
     ink = palette["ink"]
@@ -1004,8 +1100,10 @@ def render_poster(
     else:
         right_x = margin + 55
 
+    doodle_box = (width - margin - 200, info_top + 32, width - margin - 45, info_top + 187) if doodle is not None else None
+    place_right = (doodle_box[0] - 16) if doodle_box else (width - margin - 45)
     micro_label(draw, right_x, info_top + 24, "地点", palette["ticketAccentDark"], 21)
-    draw_text_box(draw, str(data["place"]), (right_x, info_top + 62, width - margin - 45, info_top + 135), ink, max_size=47, min_size=32, max_lines=2, role="display")
+    draw_text_box(draw, str(data["place"]), (right_x, info_top + 62, place_right, info_top + 135), ink, max_size=47, min_size=32, max_lines=2, role="display")
     date_font = load_font(20, role="sans")
     detail_value_x = right_x + 100
     micro_label(draw, right_x, info_top + 155, date_label, palette["ticketAccentDark"], 21)
@@ -1013,7 +1111,9 @@ def render_poster(
     micro_label(draw, right_x, info_top + 204, "编号", palette["ticketAccentDark"], 21)
     draw_tracked(draw, (detail_value_x, info_top + 197), str(data["ticketNumber"]), load_font(21, role="sans"), ink, tracking=1)
 
+    doodle_placed = place_event_doodle(image, doodle, doodle_box)
     draw_accent_frame(draw, image.size, palette)
+    return doodle_placed
 
 
 def render(
@@ -1022,6 +1122,7 @@ def render(
     stamp_style: str,
     image_path: Path | None,
     require_image: bool,
+    doodle: Image.Image | None,
 ) -> Image.Image:
     size = SHAPES[shape][0]
     palette = choose_palette(data)
@@ -1041,9 +1142,11 @@ def render(
     art = get_art(art_size, data, palette, seed + 11, image_path, require_image)
 
     if layout == "stage-triptych":
-        render_triptych(ticket, data, shape, palette, art, stamp_style)
+        doodle_placed = render_triptych(ticket, data, shape, palette, art, stamp_style, doodle)
     else:
-        render_poster(ticket, data, palette, art, stamp_style)
+        doodle_placed = render_poster(ticket, data, palette, art, stamp_style, doodle)
+    if doodle is not None and not doodle_placed:
+        data["design"]["eventDoodle"]["status"] = "skipped"
 
     # A low-contrast environmental shadow gives the die-cut stock physical depth
     # against transparency. It is intentionally soft and shallow, never a floating card.
@@ -1071,12 +1174,15 @@ def main() -> int:
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     image_path = Path(args.image).expanduser().resolve() if args.image else None
+    doodle_path = Path(args.doodle).expanduser().resolve() if args.doodle else None
     data = read_json(input_path)
     validate(data)
-    shape, _, stamp_style = choose_design(data, args.shape, args.stamp_style)
+    shape, layout, stamp_style = choose_design(data, args.shape, args.stamp_style)
+    resolve_event_doodle(data, layout, doodle_path)
+    doodle = load_event_doodle(doodle_path) if doodle_path else None
 
     png_path, json_path = ensure_output_paths(output_dir, str(data["ticketNumber"]), input_path)
-    result = render(data, shape, stamp_style, image_path, args.require_image)
+    result = render(data, shape, stamp_style, image_path, args.require_image, doodle)
     result.save(png_path, "PNG", optimize=True)
     if args.preview_white:
         preview_path = Path(args.preview_white).expanduser().resolve()
