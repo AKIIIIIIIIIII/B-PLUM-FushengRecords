@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image", help="Optional generated image or user photo")
     parser.add_argument("--shape", choices=sorted(SHAPES), help="Override shape style")
     parser.add_argument("--stamp-style", choices=STAMP_STYLES, help="Override status-stamp style")
+    parser.add_argument("--require-image", action="store_true", help="Fail instead of using procedural art when --image is missing")
     parser.add_argument("--preview-white", help="Optional white-background PNG for material inspection")
     return parser.parse_args()
 
@@ -657,6 +658,7 @@ def get_art(
     palette: dict[str, str],
     seed: int,
     image_path: Path | None,
+    require_image: bool,
 ) -> Image.Image:
     if image_path:
         with Image.open(image_path) as source:
@@ -666,6 +668,8 @@ def get_art(
             overlay = Image.new("RGBA", size, palette["paper"] + "22")
             result.alpha_composite(overlay)
             return result
+    if require_image:
+        raise ValueError("Missing main image: retry AI generation before allowing procedural art")
     data.setdefault("image", {})["source"] = "procedural"
     data["image"]["referenceUsed"] = False
     return procedural_art(size, data, palette, seed)
@@ -1017,6 +1021,7 @@ def render(
     shape: str,
     stamp_style: str,
     image_path: Path | None,
+    require_image: bool,
 ) -> Image.Image:
     size = SHAPES[shape][0]
     palette = choose_palette(data)
@@ -1033,7 +1038,7 @@ def render(
         art_size = (max(480, int(size[0] * 0.44)), max(420, int(size[1] * 0.80)))
     else:
         art_size = (max(720, int(size[0] * 0.86)), 480)
-    art = get_art(art_size, data, palette, seed + 11, image_path)
+    art = get_art(art_size, data, palette, seed + 11, image_path, require_image)
 
     if layout == "stage-triptych":
         render_triptych(ticket, data, shape, palette, art, stamp_style)
@@ -1071,7 +1076,7 @@ def main() -> int:
     shape, _, stamp_style = choose_design(data, args.shape, args.stamp_style)
 
     png_path, json_path = ensure_output_paths(output_dir, str(data["ticketNumber"]), input_path)
-    result = render(data, shape, stamp_style, image_path)
+    result = render(data, shape, stamp_style, image_path, args.require_image)
     result.save(png_path, "PNG", optimize=True)
     if args.preview_white:
         preview_path = Path(args.preview_white).expanduser().resolve()
