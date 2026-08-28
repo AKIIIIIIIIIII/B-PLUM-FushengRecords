@@ -1,4 +1,4 @@
 interface:
   display_name: "生成浮生录"
-  short_description: "协调出票、造册、收录或样票植入的一条龙完整流程"
-  default_prompt: "使用 $create-fusheng-record 从票根来源开始，为我生成一本本地《浮生录》。"
+  short_description: "确认后自动准备默认样票、造册并收录的一条龙流程"
+  default_prompt: "使用 $create-fusheng-record 为我生成一整套本地《浮生录》。"

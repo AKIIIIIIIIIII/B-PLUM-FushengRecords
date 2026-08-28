@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ticketNumber": "LT-P-20260824-SNOW",
+  "ticketNumber": "LT-P-20260829-A7K2",
   "kind": "past",
   "status": "ended",
   "title": "第一次独自看雪",
@@ -30,9 +30,16 @@
   "design": {
     "shapeStyle": "film-edge",
     "layoutStyle": "stage-triptych",
+    "stampStyle": "floral-slip",
+    "eventDoodle": {
+      "keyword": "初雪",
+      "style": "broken-ink-doodle",
+      "placement": "place-record-side",
+      "status": "generated"
+    },
     "imageStyle": "symbolic-card-illustration",
     "finishStyle": "modern-vintage-editorial",
     "typographyStyle": "qiji-source-han"
   },
-  "createdAt": "2026-08-24T12:00:00+09:00"
+  "createdAt": "2026-08-29T10:00:00+09:00"
 }

@@ -1,7 +1,7 @@
 {
   "name": "B-PLUM-FushengRecords",
   "version": "0.1.0",
-  "description": "将人生片段制成票根，并在本地完成造册、收录、样票植入与无损导出。",
+  "description": "将人生片段制成票根，用虚构样票或个人票建立本地藏本，并在网页中收藏与导出。",
   "author": {
     "name": "造册人",
     "url": "https://b-plum.com/"
@@ -13,8 +13,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "B-PLUM-FushengRecords · 浮生录",
-    "shortDescription": "从人生出票到古籍造册、收录与导出的本地收藏工具",
-    "longDescription": "把往昔片段与未来愿望制成人生票根，建立本地互动古籍，植入样票、追加收藏，并将册内 PNG 与 JSON 完整导出。",
+    "shortDescription": "从人生出票、默认样票造册到网页收藏与导出的本地工具",
+    "longDescription": "把往昔片段与未来愿望制成人生票根，默认用过去五张与未来五张虚构样票建立本地互动古籍，也可追加个人票，并从网页导出当前可见的 PNG 与 JSON。",
     "developerName": "造册人",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
@@ -22,13 +22,13 @@
     "defaultPrompt": [
       "帮我制作一张人生票根。",
       "为我建立一本空白人生藏册。",
-      "用样票生成一本可浏览的《浮生录》。"
+      "为我生成一整套带虚构样票的《浮生录》。"
     ],
     "brandColor": "#A63D32",
     "screenshots": [
-      "./docs/images/album-preview.png",
-      "./examples/tickets/LT-P-20260824-SNOW.png",
-      "./examples/tickets/LT-U-20260824-BOOK.png"
+      "./docs/images/album-cover.png",
+      "./docs/images/album-past.png",
+      "./docs/images/album-future.png"
     ]
   }
 }

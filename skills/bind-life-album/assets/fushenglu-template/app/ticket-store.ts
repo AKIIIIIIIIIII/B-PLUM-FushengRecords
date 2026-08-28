@@ -15,10 +15,11 @@ const DATABASE_NAME = "fushenglu-local-album";
 const STORE_NAME = "tickets";
 const SETTINGS_STORE_NAME = "settings";
 const DEFAULT_TICKETS_HIDDEN_KEY = "defaultTicketsHidden";
+const HIDDEN_DEFAULT_TICKET_NUMBERS_KEY = "hiddenDefaultTicketNumbers";
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, 3);
+    const request = indexedDB.open(DATABASE_NAME, 4);
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) {
@@ -56,23 +57,53 @@ export async function saveStoredTickets(tickets: StoredTicket[]): Promise<void> 
   database.close();
 }
 
-export async function readDefaultTicketsHidden(): Promise<boolean> {
-  const database = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(SETTINGS_STORE_NAME, "readonly");
-    const request = transaction.objectStore(SETTINGS_STORE_NAME).get(DEFAULT_TICKETS_HIDDEN_KEY);
-    request.onsuccess = () => resolve(request.result?.value === true);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => database.close();
-  });
+export function resolveHiddenDefaultTicketNumbers(value: unknown, currentTicketNumbers: string[]): string[] {
+  if (value === true) return [...new Set(currentTicketNumbers.filter(Boolean))];
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((ticketNumber): ticketNumber is string => typeof ticketNumber === "string" && ticketNumber.length > 0))];
 }
 
-export async function clearAllTickets(): Promise<void> {
+async function writeHiddenDefaultTicketNumbers(ticketNumbers: string[], removeLegacy = false): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(SETTINGS_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(SETTINGS_STORE_NAME);
+    store.put({ key: HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, value: ticketNumbers });
+    if (removeLegacy) store.delete(DEFAULT_TICKETS_HIDDEN_KEY);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+}
+
+export async function readHiddenDefaultTicketNumbers(currentTicketNumbers: string[]): Promise<string[]> {
+  const database = await openDatabase();
+  const records = await new Promise<{ current?: { value?: unknown }; legacy?: { value?: unknown } }>((resolve, reject) => {
+    const transaction = database.transaction(SETTINGS_STORE_NAME, "readonly");
+    const store = transaction.objectStore(SETTINGS_STORE_NAME);
+    const currentRequest = store.get(HIDDEN_DEFAULT_TICKET_NUMBERS_KEY);
+    const legacyRequest = store.get(DEFAULT_TICKETS_HIDDEN_KEY);
+    const result: { current?: { value?: unknown }; legacy?: { value?: unknown } } = {};
+    currentRequest.onsuccess = () => { result.current = currentRequest.result; };
+    legacyRequest.onsuccess = () => { result.legacy = legacyRequest.result; };
+    currentRequest.onerror = () => reject(currentRequest.error);
+    legacyRequest.onerror = () => reject(legacyRequest.error);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.oncomplete = () => { database.close(); resolve(result); };
+  });
+  const sourceValue = records.current?.value ?? records.legacy?.value;
+  const ticketNumbers = resolveHiddenDefaultTicketNumbers(sourceValue, currentTicketNumbers);
+  if (!records.current && records.legacy) await writeHiddenDefaultTicketNumbers(ticketNumbers, true);
+  return ticketNumbers;
+}
+
+export async function clearAllTickets(defaultTicketNumbers: string[]): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction([STORE_NAME, SETTINGS_STORE_NAME], "readwrite");
     transaction.objectStore(STORE_NAME).clear();
-    transaction.objectStore(SETTINGS_STORE_NAME).put({ key: DEFAULT_TICKETS_HIDDEN_KEY, value: true });
+    transaction.objectStore(SETTINGS_STORE_NAME).put({ key: HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, value: resolveHiddenDefaultTicketNumbers(defaultTicketNumbers, []) });
+    transaction.objectStore(SETTINGS_STORE_NAME).delete(DEFAULT_TICKETS_HIDDEN_KEY);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -80,14 +111,7 @@ export async function clearAllTickets(): Promise<void> {
 }
 
 export async function restoreDefaultTickets(): Promise<void> {
-  const database = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(SETTINGS_STORE_NAME, "readwrite");
-    transaction.objectStore(SETTINGS_STORE_NAME).put({ key: DEFAULT_TICKETS_HIDDEN_KEY, value: false });
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-  database.close();
+  await writeHiddenDefaultTicketNumbers([], true);
 }
 
 type TicketJson = {
