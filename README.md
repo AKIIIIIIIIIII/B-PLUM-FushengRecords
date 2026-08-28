@@ -73,7 +73,7 @@
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/AKIIIIIIIIIII/B-PLUM-FushengRecords.git
+   git clone https://github.com/Tabascoiiii/B-PLUM-FushengRecords.git
    ```
 
 2. 在 ChatGPT 或 Codex 的 Plugins 页面添加本地插件来源，选择包含 `.codex-plugin/plugin.json` 的仓库根目录。
@@ -162,7 +162,7 @@ The two tickets shown above are fictional demonstration data. They do not descri
 ### Install
 
 ```bash
-git clone https://github.com/AKIIIIIIIIIII/B-PLUM-FushengRecords.git
+git clone https://github.com/Tabascoiiii/B-PLUM-FushengRecords.git
 ```
 
 In the ChatGPT or Codex Plugins page, add a local plugin source and select the repository root containing `.codex-plugin/plugin.json`. Enable **B-PLUM-FushengRecords**, start a new task, and describe the moment or album you want to make.
