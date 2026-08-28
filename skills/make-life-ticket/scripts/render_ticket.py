@@ -40,6 +40,8 @@ TICKET_STOCK_DIR = SKILL_ROOT / "assets" / "ticket-stock"
 STATUS_STAMP_DIR = SKILL_ROOT / "assets" / "status-stamps"
 
 STAMP_STYLES = ("floral-slip", "negative-square", "broken-ring")
+EVENT_DOODLE_STYLE = "broken-ink-doodle"
+EVENT_DOODLE_STATUSES = {"generated", "skipped", "none"}
 STAMP_BOUNDS = {
     "stage-triptych": {
         "floral-slip": (82, 220),
@@ -106,8 +108,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Confirmed ticket JSON path")
     parser.add_argument("--output-dir", required=True, help="Directory for PNG and JSON")
     parser.add_argument("--image", help="Optional generated image or user photo")
+    parser.add_argument("--doodle", help="Optional generated transparent event-doodle PNG")
     parser.add_argument("--shape", choices=sorted(SHAPES), help="Override shape style")
     parser.add_argument("--stamp-style", choices=STAMP_STYLES, help="Override status-stamp style")
+    parser.add_argument("--require-image", action="store_true", help="Fail instead of using procedural art when --image is missing")
     parser.add_argument("--preview-white", help="Optional white-background PNG for material inspection")
     return parser.parse_args()
 
@@ -165,6 +169,60 @@ def choose_design(
     design["finishStyle"] = "modern-vintage-editorial"
     design["typographyStyle"] = "qiji-source-han"
     return shape, layout, stamp_style
+
+
+def infer_doodle_keyword(data: dict[str, Any]) -> str | None:
+    """Prefer an explicit visual element before falling back to scene or place."""
+    for value in data.get("visualElements", []):
+        keyword = str(value).strip()
+        if keyword:
+            return keyword[:24]
+    for value in (data.get("scene"), data.get("place")):
+        keyword = str(value or "").strip()
+        if keyword:
+            return keyword[:24]
+    return None
+
+
+def resolve_event_doodle(
+    data: dict[str, Any],
+    layout: str,
+    doodle_path: Path | None,
+) -> dict[str, Any] | None:
+    """Validate persistent doodle metadata and enforce explicit asset handoff."""
+    design = data.setdefault("design", {})
+    doodle = design.get("eventDoodle")
+    placement = "place-record-side" if layout == "stage-triptych" else "place-side"
+    if doodle is None:
+        if doodle_path is None:
+            return None
+        keyword = infer_doodle_keyword(data)
+        if not keyword:
+            raise ValueError("Cannot generate an event doodle without a visual keyword")
+        doodle = {
+            "keyword": keyword,
+            "style": EVENT_DOODLE_STYLE,
+            "placement": placement,
+            "status": "generated",
+        }
+        design["eventDoodle"] = doodle
+    if not isinstance(doodle, dict):
+        raise ValueError("design.eventDoodle must be an object")
+    status = doodle.get("status", "generated")
+    if status not in EVENT_DOODLE_STATUSES:
+        raise ValueError(f"Unknown eventDoodle status: {status}")
+    if doodle.get("style", EVENT_DOODLE_STYLE) != EVENT_DOODLE_STYLE:
+        raise ValueError(f"Unknown eventDoodle style: {doodle.get('style')}")
+    if status == "generated":
+        if not str(doodle.get("keyword", "")).strip():
+            raise ValueError("Generated eventDoodle requires a keyword")
+        if doodle_path is None:
+            raise ValueError("Generated eventDoodle requires --doodle")
+        doodle["style"] = EVENT_DOODLE_STYLE
+        doodle["placement"] = placement
+    elif doodle_path is not None:
+        raise ValueError(f"eventDoodle status {status} must not receive --doodle")
+    return doodle
 
 
 def font_candidates(role: str) -> list[str]:
@@ -488,6 +546,76 @@ def draw_person(draw: ImageDraw.ImageDraw, x: int, ground: int, scale: float, co
     draw.line((x + int(12 * scale), ground - int(25 * scale), x + int(18 * scale), ground), fill=color, width=max(2, int(5 * scale)))
 
 
+def scene_words(data: dict[str, Any]) -> str:
+    """Combine user-provided scene fields for deterministic scene matching."""
+    parts = [str(data.get("scene", "")), str(data.get("place", ""))]
+    parts.extend(str(item) for item in data.get("visualElements", []))
+    return " ".join(parts).lower()
+
+
+def is_claw_machine_scene(data: dict[str, Any]) -> bool:
+    words = scene_words(data)
+    return any(token in words for token in ("娃娃机", "抓娃娃", "夹娃娃", "机械爪", "抓到玩偶"))
+
+
+def draw_claw_machine_scene(
+    draw: ImageDraw.ImageDraw,
+    size: tuple[int, int],
+    palette: dict[str, str],
+) -> None:
+    """Draw a generic claw-machine moment without reproducing a branded character."""
+    width, height = size
+    ink = palette["ink"]
+    machine = (int(width * 0.08), int(height * 0.07), int(width * 0.92), int(height * 0.93))
+    glass = (int(width * 0.16), int(height * 0.17), int(width * 0.84), int(height * 0.72))
+    yellow = "#D9AE35"
+    goggle = "#C9CDC6"
+
+    draw.rectangle((0, 0, width, height), fill=palette["light"])
+    draw.rounded_rectangle(machine, radius=max(16, width // 28), fill=palette["paper"], outline=ink, width=4)
+    draw.rectangle((machine[0] + 12, machine[1] + 14, machine[2] - 12, int(height * 0.15)), fill=palette["accent"])
+    draw.rounded_rectangle(glass, radius=10, fill="#E7DFC9", outline=ink, width=4)
+
+    # A restrained set of reflections gives the glass enclosure depth without text.
+    draw.line((glass[0] + 24, glass[1] + 18, glass[0] + 90, glass[1] + 96), fill=palette["light"], width=5)
+    draw.line((glass[2] - 52, glass[1] + 22, glass[2] - 18, glass[1] + 70), fill=palette["light"], width=3)
+
+    center_x = width // 2
+    cord_bottom = int(height * 0.36)
+    draw.line((center_x, glass[1] + 10, center_x, cord_bottom), fill=ink, width=4)
+    draw.ellipse((center_x - 15, cord_bottom - 15, center_x + 15, cord_bottom + 15), fill=palette["accent"], outline=ink, width=3)
+    for angle in (115, 90, 65):
+        radians = math.radians(angle)
+        start_x = center_x + int(math.cos(radians) * 10)
+        start_y = cord_bottom + int(math.sin(radians) * 10)
+        end_x = center_x + int(math.cos(radians) * 64)
+        end_y = cord_bottom + int(math.sin(radians) * 64)
+        draw.line((start_x, start_y, end_x, end_y), fill=ink, width=4)
+        draw.line((end_x, end_y, end_x + int(math.cos(radians + 0.55) * 20), end_y + int(math.sin(radians + 0.55) * 20)), fill=ink, width=3)
+
+    # Generic yellow plush with goggles: it conveys the user's moment but carries no logo or brand mark.
+    toy_x, toy_y = center_x, int(height * 0.53)
+    draw.ellipse((toy_x - 46, toy_y - 52, toy_x + 46, toy_y + 62), fill=yellow, outline=ink, width=4)
+    draw.ellipse((toy_x - 42, toy_y - 78, toy_x + 42, toy_y - 2), fill=yellow, outline=ink, width=4)
+    for offset in (-19, 19):
+        draw.ellipse((toy_x + offset - 18, toy_y - 51, toy_x + offset + 18, toy_y - 15), fill=goggle, outline=ink, width=3)
+        draw.ellipse((toy_x + offset - 8, toy_y - 41, toy_x + offset + 8, toy_y - 25), fill=palette["paper"], outline=ink, width=2)
+    draw.arc((toy_x - 18, toy_y - 5, toy_x + 18, toy_y + 24), 10, 170, fill=ink, width=3)
+    draw.line((toy_x - 42, toy_y + 25, toy_x - 72, toy_y + 2), fill=ink, width=4)
+    draw.line((toy_x + 42, toy_y + 25, toy_x + 72, toy_y + 2), fill=ink, width=4)
+
+    # Prize chute and scattered toy silhouettes anchor the event inside the machine.
+    chute = (int(width * 0.24), int(height * 0.75), int(width * 0.76), int(height * 0.88))
+    draw.rounded_rectangle(chute, radius=12, fill=palette["deep"], outline=ink, width=4)
+    draw.rounded_rectangle((chute[0] + 12, chute[1] + 12, chute[2] - 12, chute[3] - 12), radius=8, fill=palette["light"], outline=palette["ticketAccentLight"], width=2)
+    for x, radius in ((int(width * 0.25), 19), (int(width * 0.75), 17), (int(width * 0.19), 12)):
+        y = int(height * 0.66) + (x % 17)
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=palette["accent2"], outline=ink, width=2)
+
+    for x, y in ((int(width * 0.22), int(height * 0.28)), (int(width * 0.78), int(height * 0.34)), (int(width * 0.70), int(height * 0.20))):
+        draw_star(draw, (x, y), max(8, width // 40), palette["ticketAccent"], points=6)
+
+
 def draw_motif(draw: ImageDraw.ImageDraw, keyword: str, x: int, y: int, scale: int, palette: dict[str, str]) -> None:
     word = keyword.lower()
     ink = palette["ink"]
@@ -534,6 +662,15 @@ def procedural_art(size: tuple[int, int], data: dict[str, Any], palette: dict[st
     image = Image.new("RGBA", size, palette["light"])
     draw = ImageDraw.Draw(image)
 
+    if is_claw_machine_scene(data):
+        draw_claw_machine_scene(draw, size, palette)
+        border = max(10, min(width, height) // 30)
+        draw.rectangle((border, border, width - border, height - border), outline=palette["ink"], width=max(2, border // 4))
+        draw.rectangle((border * 2, border * 2, width - border * 2, height - border * 2), outline=palette["ink"], width=1)
+        alpha = Image.new("L", size, 255)
+        add_paper_texture(image, alpha, seed + 73, strength=15)
+        return image
+
     horizon = int(height * 0.67)
     draw.rectangle((0, 0, width, horizon), fill=palette["paper"])
     draw.rectangle((0, horizon, width, height), fill=palette["accent2"])
@@ -578,6 +715,7 @@ def get_art(
     palette: dict[str, str],
     seed: int,
     image_path: Path | None,
+    require_image: bool,
 ) -> Image.Image:
     if image_path:
         with Image.open(image_path) as source:
@@ -587,6 +725,8 @@ def get_art(
             overlay = Image.new("RGBA", size, palette["paper"] + "22")
             result.alpha_composite(overlay)
             return result
+    if require_image:
+        raise ValueError("Missing main image: retry AI generation before allowing procedural art")
     data.setdefault("image", {})["source"] = "procedural"
     data["image"]["referenceUsed"] = False
     return procedural_art(size, data, palette, seed)
@@ -719,6 +859,39 @@ def place_status_stamp(
     image.alpha_composite(stamp, (x, y))
 
 
+def load_event_doodle(path: Path) -> Image.Image:
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing event-doodle asset: {path}")
+    with Image.open(path) as source:
+        if "A" not in source.getbands():
+            raise ValueError(f"Event-doodle asset must have transparency: {path}")
+        doodle = source.convert("RGBA")
+    if doodle.getchannel("A").getbbox() is None:
+        raise ValueError(f"Event-doodle asset is blank: {path}")
+    return doodle
+
+
+def place_event_doodle(
+    image: Image.Image,
+    doodle: Image.Image | None,
+    box: tuple[int, int, int, int] | None,
+) -> bool:
+    """Composite a generated transparent doodle while preserving its safe padding."""
+    if doodle is None or box is None:
+        return False
+    left, top, right, bottom = box
+    if right - left < 42 or bottom - top < 42:
+        return False
+    mark = doodle.copy()
+    mark.thumbnail((right - left, bottom - top), Image.Resampling.LANCZOS)
+    alpha = mark.getchannel("A").point(lambda value: int(value * 0.84))
+    mark.putalpha(alpha)
+    x = left + (right - left - mark.width) // 2
+    y = top + (bottom - top - mark.height) // 2
+    image.alpha_composite(mark, (x, y))
+    return True
+
+
 def editorial_art(art: Image.Image, size: tuple[int, int], palette: dict[str, str], centering: tuple[float, float] = (0.5, 0.5)) -> Image.Image:
     fitted = crop_cover(art, size, centering=centering)
     gray = ImageOps.grayscale(fitted)
@@ -762,7 +935,8 @@ def render_triptych(
     palette: dict[str, str],
     art: Image.Image,
     stamp_style: str,
-) -> None:
+    doodle: Image.Image | None,
+) -> bool:
     width, height = image.size
     draw = ImageDraw.Draw(image)
     ink = palette["ink"]
@@ -798,19 +972,21 @@ def render_triptych(
         micro_label(draw, margin + 42, int(height * 0.23), "这一幕", palette["ticketAccentDark"], 19)
         draw_text_box(draw, str(data["title"]), (margin + 42, int(height * 0.29), x_left - 30, int(height * 0.60)), ink, max_size=68, min_size=38, max_lines=3, role="display")
     else:
-        micro_label(draw, margin + 42, int(height * 0.20), "时间", palette["ticketAccentDark"], 18)
+        micro_label(draw, margin + 42, int(height * 0.20), "时间", palette["ticketAccentDark"], 22)
         time_display = str(time.get("display", ""))
         time_role = "sans" if any(char.isdigit() or char.isascii() and char.isalpha() for char in time_display) else "display"
-        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=59, min_size=36, max_lines=2, role=time_role)
+        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=47, min_size=30, max_lines=2, role=time_role)
 
     place_y = int(height * 0.48) if not time_hidden else int(height * 0.64)
-    micro_label(draw, margin + 42, place_y, "地点", palette["ticketAccentDark"], 17)
-    draw_text_box(draw, str(data["place"]), (margin + 42, place_y + 32, x_left - 30, place_y + 92), ink, max_size=35, min_size=24, max_lines=2, role="display")
+    doodle_box = (x_left - 175, place_y, x_left - 35, place_y + 140) if doodle is not None else None
+    detail_right = (doodle_box[0] - 16) if doodle_box else (x_left - 30)
+    micro_label(draw, margin + 42, place_y, "地点", palette["ticketAccentDark"], 21)
+    draw_text_box(draw, str(data["place"]), (margin + 42, place_y + 34, detail_right, place_y + 105), ink, max_size=42, min_size=28, max_lines=2, role="display")
     note = data.get("note")
     if note:
         note_y = int(height * 0.66)
-        micro_label(draw, margin + 42, note_y, "记录", palette["ticketAccentDark"], 16)
-        draw_text_box(draw, str(note), (margin + 42, note_y + 31, x_left - 30, height - margin - 12), palette["deep"], max_size=28, min_size=20, max_lines=3, role="display")
+        micro_label(draw, margin + 42, note_y, "记录", palette["ticketAccentDark"], 21)
+        draw_text_box(draw, str(note), (margin + 42, note_y + 34, detail_right, height - margin - 12), palette["deep"], max_size=34, min_size=23, max_lines=3, role="display")
 
     if not time_hidden:
         band_y = int(height * 0.67)
@@ -849,10 +1025,12 @@ def render_triptych(
     draw.text((rail_left, number_label_y + 38), ticket_number, font=serial_font, fill=ink)
 
     draw_scene_thread(draw, (margin + 48, int(height * 0.46)), (art_box[0] + 44, int(height * 0.40)), palette["ticketAccent"])
+    doodle_placed = place_event_doodle(image, doodle, doodle_box)
 
     if shape == "intermission-stub":
         draw_dotted_line(draw, (int(width * 0.79), margin), (int(width * 0.79), height - margin), ink, width=2, gap=8)
     draw_accent_frame(draw, image.size, palette)
+    return doodle_placed
 
 
 def render_poster(
@@ -861,7 +1039,8 @@ def render_poster(
     palette: dict[str, str],
     art: Image.Image,
     stamp_style: str,
-) -> None:
+    doodle: Image.Image | None,
+) -> bool:
     width, height = image.size
     draw = ImageDraw.Draw(image)
     ink = palette["ink"]
@@ -921,8 +1100,10 @@ def render_poster(
     else:
         right_x = margin + 55
 
+    doodle_box = (width - margin - 200, info_top + 32, width - margin - 45, info_top + 187) if doodle is not None else None
+    place_right = (doodle_box[0] - 16) if doodle_box else (width - margin - 45)
     micro_label(draw, right_x, info_top + 24, "地点", palette["ticketAccentDark"], 21)
-    draw_text_box(draw, str(data["place"]), (right_x, info_top + 62, width - margin - 45, info_top + 135), ink, max_size=47, min_size=32, max_lines=2, role="display")
+    draw_text_box(draw, str(data["place"]), (right_x, info_top + 62, place_right, info_top + 135), ink, max_size=47, min_size=32, max_lines=2, role="display")
     date_font = load_font(20, role="sans")
     detail_value_x = right_x + 100
     micro_label(draw, right_x, info_top + 155, date_label, palette["ticketAccentDark"], 21)
@@ -930,7 +1111,9 @@ def render_poster(
     micro_label(draw, right_x, info_top + 204, "编号", palette["ticketAccentDark"], 21)
     draw_tracked(draw, (detail_value_x, info_top + 197), str(data["ticketNumber"]), load_font(21, role="sans"), ink, tracking=1)
 
+    doodle_placed = place_event_doodle(image, doodle, doodle_box)
     draw_accent_frame(draw, image.size, palette)
+    return doodle_placed
 
 
 def render(
@@ -938,6 +1121,8 @@ def render(
     shape: str,
     stamp_style: str,
     image_path: Path | None,
+    require_image: bool,
+    doodle: Image.Image | None,
 ) -> Image.Image:
     size = SHAPES[shape][0]
     palette = choose_palette(data)
@@ -954,12 +1139,14 @@ def render(
         art_size = (max(480, int(size[0] * 0.44)), max(420, int(size[1] * 0.80)))
     else:
         art_size = (max(720, int(size[0] * 0.86)), 480)
-    art = get_art(art_size, data, palette, seed + 11, image_path)
+    art = get_art(art_size, data, palette, seed + 11, image_path, require_image)
 
     if layout == "stage-triptych":
-        render_triptych(ticket, data, shape, palette, art, stamp_style)
+        doodle_placed = render_triptych(ticket, data, shape, palette, art, stamp_style, doodle)
     else:
-        render_poster(ticket, data, palette, art, stamp_style)
+        doodle_placed = render_poster(ticket, data, palette, art, stamp_style, doodle)
+    if doodle is not None and not doodle_placed:
+        data["design"]["eventDoodle"]["status"] = "skipped"
 
     # A low-contrast environmental shadow gives the die-cut stock physical depth
     # against transparency. It is intentionally soft and shallow, never a floating card.
@@ -987,12 +1174,15 @@ def main() -> int:
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     image_path = Path(args.image).expanduser().resolve() if args.image else None
+    doodle_path = Path(args.doodle).expanduser().resolve() if args.doodle else None
     data = read_json(input_path)
     validate(data)
-    shape, _, stamp_style = choose_design(data, args.shape, args.stamp_style)
+    shape, layout, stamp_style = choose_design(data, args.shape, args.stamp_style)
+    resolve_event_doodle(data, layout, doodle_path)
+    doodle = load_event_doodle(doodle_path) if doodle_path else None
 
     png_path, json_path = ensure_output_paths(output_dir, str(data["ticketNumber"]), input_path)
-    result = render(data, shape, stamp_style, image_path)
+    result = render(data, shape, stamp_style, image_path, args.require_image, doodle)
     result.save(png_path, "PNG", optimize=True)
     if args.preview_white:
         preview_path = Path(args.preview_white).expanduser().resolve()
