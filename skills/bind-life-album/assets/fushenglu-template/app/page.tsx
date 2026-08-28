@@ -296,7 +296,7 @@ export default function Home() {
           </section>
         )}
 
-        {!isOpen && manifest.contact && <ContactNote contact={manifest.contact} uiScale={viewportLayout.uiScale} mobile={viewportLayout.isMobile} />}
+        {!isOpen && manifest.contact && <ContactNote contact={manifest.contact} />}
         <footer className="absolute right-[38px] bottom-7 z-[8] text-[max(11px,var(--readable-small))] leading-[1.2] tracking-[.24em] text-[rgba(214,178,105,.48)] max-[760px]:right-[17px] max-[760px]:bottom-[18px]">{manifest.edition}</footer>
       </div>
       {selected && <TicketFocus ticket={selected} onClose={() => setSelected(null)} scale={Math.max(viewportLayout.uiScale, viewportLayout.isMobile ? 0.78 : 0.65)} />}

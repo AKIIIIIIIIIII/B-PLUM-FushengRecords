@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject, type WheelEvent as ReactWheelEvent } from "react";
 import type { Ticket } from "../album-types";
-import { getPastTurnTarget, type PageTurnDirection } from "../past-pagination";
+import { getFuturePerspective, getFutureTicketFitScale } from "../future-perspective";
+import { getPastSwipeDirection, getPastTurnTarget, getPastWheelDirection, shouldCommitPastSwipe, type PageTurnDirection } from "../past-pagination";
 import { TicketFace } from "./ticket-face";
 
 type PastChapterProps = {
@@ -18,22 +19,23 @@ type PastChapterProps = {
 type TurnState = {
   direction: PageTurnDirection;
   progress: number;
-  phase: "dragging" | "settling";
+  phase: "preparing" | "settling";
   targetPage: number;
 };
 
 type GestureState = {
   pointerId: number;
-  direction: PageTurnDirection;
   startX: number;
+  startY: number;
   startTime: number;
-  progress: number;
   active: boolean;
 };
 
-const TURN_THRESHOLD = 0.3;
-const TURN_VELOCITY = 0.45;
 const TURN_DURATION = 680;
+const SLIDE_DURATION = 420;
+const TRACKPAD_THRESHOLD = 48;
+const TRACKPAD_RESET_DELAY = 160;
+const TRACKPAD_COOLDOWN = 900;
 
 type BookPageProps = {
   logicalPage: number;
@@ -53,8 +55,8 @@ function BookPage({ logicalPage, placement, tickets, rows, collectionEmpty, inte
     <div className={`page book-page page-${placement}`} aria-label={`往昔第 ${logicalPage + 1} 页`}>
       {showHeading && <div className="spread-heading"><p className="chapter-no">卷一 · 往昔</p><h1>循岁月而行</h1></div>}
       <div className={`page-ticket-list ${showHeading ? "" : "page-ticket-list-right"}`} data-count={pageTickets.length}>
-        {pageTickets.map((ticket, index) => (
-          <button key={ticket.id} className={`past-ticket ${ticket.imageUrl ? "has-image" : ""}`} disabled={!interactive} onClick={() => interactive && onSelect(ticket)} style={{ "--delay": `${index * 90}ms` } as CSSProperties}>
+        {pageTickets.map((ticket) => (
+          <button key={ticket.id} className={`past-ticket ${ticket.imageUrl ? "has-image" : ""}`} disabled={!interactive} onClick={() => interactive && onSelect(ticket)}>
             <TicketFace ticket={ticket} compact />
           </button>
         ))}
@@ -70,8 +72,13 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
   const [reducedMotion, setReducedMotion] = useState(false);
   const spreadRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<GestureState | null>(null);
+  const suppressClickRef = useRef(false);
   const timerRef = useRef<number | null>(null);
   const frameRef = useRef<number | null>(null);
+  const clickResetTimerRef = useRef<number | null>(null);
+  const wheelResetTimerRef = useRef<number | null>(null);
+  const wheelDeltaRef = useRef(0);
+  const wheelCooldownUntilRef = useRef(0);
 
   const clearScheduledTurn = useCallback(() => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
@@ -90,6 +97,11 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
 
   useEffect(() => () => clearScheduledTurn(), [clearScheduledTurn]);
 
+  useEffect(() => () => {
+    if (clickResetTimerRef.current !== null) window.clearTimeout(clickResetTimerRef.current);
+    if (wheelResetTimerRef.current !== null) window.clearTimeout(wheelResetTimerRef.current);
+  }, []);
+
   const targetFor = useCallback((direction: PageTurnDirection) => getPastTurnTarget(page, direction, pageCount, singlePage), [page, pageCount, singlePage]);
 
   const finishTurn = useCallback((direction: PageTurnDirection, targetPage: number, commit: boolean) => {
@@ -100,14 +112,14 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
       return;
     }
     const endProgress = commit ? 1 : 0;
-    const duration = TURN_DURATION;
+    const duration = singlePage ? SLIDE_DURATION : TURN_DURATION;
     setTurn({ direction, targetPage, progress: endProgress, phase: "settling" });
     timerRef.current = window.setTimeout(() => {
       setTurn(null);
       timerRef.current = null;
       if (commit) onPageChange(targetPage);
     }, duration);
-  }, [clearScheduledTurn, onPageChange, reducedMotion]);
+  }, [clearScheduledTurn, onPageChange, reducedMotion, singlePage]);
 
   const playTurn = useCallback((direction: PageTurnDirection) => {
     if (interactionLocked || turn) return;
@@ -118,7 +130,7 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
       return;
     }
     clearScheduledTurn();
-    setTurn({ direction, targetPage, progress: 0, phase: "dragging" });
+    setTurn({ direction, targetPage, progress: 0, phase: "preparing" });
     frameRef.current = window.requestAnimationFrame(() => {
       frameRef.current = window.requestAnimationFrame(() => finishTurn(direction, targetPage, true));
     });
@@ -134,42 +146,64 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [interactionLocked, playTurn]);
 
-  const beginGesture = (direction: PageTurnDirection, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (interactionLocked || turn || targetFor(direction) === null) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    gestureRef.current = { pointerId: event.pointerId, direction, startX: event.clientX, startTime: event.timeStamp, progress: 0, active: false };
+  const suppressNextClick = () => {
+    if (clickResetTimerRef.current !== null) window.clearTimeout(clickResetTimerRef.current);
+    suppressClickRef.current = true;
+    clickResetTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = false;
+      clickResetTimerRef.current = null;
+    }, 0);
   };
 
-  const moveGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const beginGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (interactionLocked || turn || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (targetFor("forward") === null && targetFor("backward") === null) return;
+    gestureRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startTime: event.timeStamp, active: false };
+  };
+
+  const moveGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
-    const pageWidth = Math.max(1, (spreadRef.current?.getBoundingClientRect().width ?? 1) * (singlePage ? 1 : 0.5));
-    const distance = gesture.direction === "forward" ? gesture.startX - event.clientX : event.clientX - gesture.startX;
-    const progress = Math.min(1, Math.max(0, distance / pageWidth));
-    if (!gesture.active && Math.abs(distance) < 4) return;
+    const deltaX = gesture.startX - event.clientX;
+    const deltaY = gesture.startY - event.clientY;
+    if (!gesture.active && getPastSwipeDirection(deltaX, deltaY) === null) return;
     event.preventDefault();
-    gesture.active = true;
-    gesture.progress = progress;
-    const targetPage = targetFor(gesture.direction);
-    if (targetPage !== null) setTurn({ direction: gesture.direction, targetPage, progress, phase: "dragging" });
+    if (!gesture.active) {
+      gesture.active = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
   };
 
-  const endGesture = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+  const endGesture = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     gestureRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    const targetPage = targetFor(gesture.direction);
-    if (targetPage === null) { setTurn(null); return; }
-    if (!gesture.active) {
-      if (!cancelled) playTurn(gesture.direction);
-      return;
-    }
+    if (!gesture.active) return;
+    suppressNextClick();
     const elapsed = Math.max(1, event.timeStamp - gesture.startTime);
-    const distance = gesture.direction === "forward" ? gesture.startX - event.clientX : event.clientX - gesture.startX;
-    const velocity = Math.max(0, distance) / elapsed;
-    const commit = !cancelled && (gesture.progress >= TURN_THRESHOLD || velocity >= TURN_VELOCITY);
-    finishTurn(gesture.direction, targetPage, commit);
+    const deltaX = gesture.startX - event.clientX;
+    const deltaY = gesture.startY - event.clientY;
+    const direction = getPastSwipeDirection(deltaX, deltaY);
+    if (!cancelled && direction !== null && shouldCommitPastSwipe(deltaX, elapsed)) playTurn(direction);
+  };
+
+  const handlePastWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const direction = getPastWheelDirection(event.deltaX, event.deltaY);
+    if (direction === null) return;
+    event.preventDefault();
+    if (interactionLocked || turn || performance.now() < wheelCooldownUntilRef.current) return;
+    wheelDeltaRef.current += event.deltaX;
+    if (wheelResetTimerRef.current !== null) window.clearTimeout(wheelResetTimerRef.current);
+    wheelResetTimerRef.current = window.setTimeout(() => {
+      wheelDeltaRef.current = 0;
+      wheelResetTimerRef.current = null;
+    }, TRACKPAD_RESET_DELAY);
+    if (Math.abs(wheelDeltaRef.current) < TRACKPAD_THRESHOLD) return;
+    const accumulatedDirection: PageTurnDirection = wheelDeltaRef.current > 0 ? "forward" : "backward";
+    wheelDeltaRef.current = 0;
+    wheelCooldownUntilRef.current = performance.now() + TRACKPAD_COOLDOWN;
+    playTurn(accumulatedDirection);
   };
 
   const currentLeft = page;
@@ -178,31 +212,55 @@ export function PastChapter({ tickets, rows, page, pageCount, singlePage, intera
   const forward = turn?.direction === "forward";
   const baseLeft = turn && !singlePage && !forward ? targetPage : currentLeft;
   const baseRight = turn && !singlePage && forward ? targetPage + 1 : currentRight;
-  const baseSingle = turn ? targetPage : page;
+  const transitionDuration = singlePage ? SLIDE_DURATION : TURN_DURATION;
   const pageProps = { tickets, rows, collectionEmpty: !tickets.length, interactive: !turn && !interactionLocked, fileInputRef, onSelect };
 
   return (
     <div className={`past-chapter ${turn ? "is-turning" : ""}`}>
-      <div ref={spreadRef} className={`past-spread ${singlePage ? "is-single" : "is-spread"}`} style={{ "--past-rows": rows, "--turn-progress": turn?.progress ?? 0, "--turn-angle": `${(turn?.direction === "backward" ? 1 : -1) * (turn?.progress ?? 0) * 180}deg`, "--turn-shadow-opacity": 0.08 + (turn?.progress ?? 0) * 0.28, "--turn-duration": `${TURN_DURATION}ms` } as CSSProperties}>
-        {singlePage
-          ? <BookPage logicalPage={baseSingle} placement="single" {...pageProps} />
-          : <><BookPage logicalPage={baseLeft} placement="left" {...pageProps} /><BookPage logicalPage={baseRight} placement="right" {...pageProps} /></>}
-        {turn && (
-          <div className={`turning-leaf turn-${turn.direction} ${turn.phase === "settling" ? "is-settling" : ""}`} aria-hidden="true">
-            <div className="leaf-face leaf-front">
-              <BookPage logicalPage={singlePage ? page : (forward ? currentRight : currentLeft)} placement={singlePage ? "single" : (forward ? "right" : "left")} {...pageProps} interactive={false} />
+      <div
+        ref={spreadRef}
+        className={`past-spread ${singlePage ? "is-single" : "is-spread"}`}
+        style={{ "--past-rows": rows, "--turn-progress": turn?.progress ?? 0, "--turn-angle": `${(turn?.direction === "backward" ? 1 : -1) * (turn?.progress ?? 0) * 180}deg`, "--turn-shadow-opacity": 0.08 + (turn?.progress ?? 0) * 0.28, "--turn-duration": `${transitionDuration}ms` } as CSSProperties}
+        aria-label="往昔书册，轻扫书页翻页，也可使用左右方向键"
+        onPointerDown={beginGesture}
+        onPointerMove={moveGesture}
+        onPointerUp={(event) => endGesture(event)}
+        onPointerCancel={(event) => endGesture(event, true)}
+        onWheel={handlePastWheel}
+        onClickCapture={(event) => {
+          if (!suppressClickRef.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = false;
+        }}
+        onDragStart={(event) => event.preventDefault()}
+      >
+        {singlePage && !turn && <BookPage logicalPage={page} placement="single" {...pageProps} />}
+        {singlePage && turn && (
+          <div className={`single-page-slider slide-${turn.direction} ${turn.phase === "settling" ? "is-settling" : ""}`} aria-hidden="true">
+            <div className="single-slide-page single-slide-current">
+              <BookPage logicalPage={page} placement="single" {...pageProps} interactive={false} />
             </div>
-            <div className="leaf-face leaf-back">
-              <BookPage logicalPage={singlePage ? targetPage : (forward ? targetPage : targetPage + 1)} placement={singlePage ? "single" : (forward ? "left" : "right")} {...pageProps} interactive={false} />
+            <div className="single-slide-page single-slide-target">
+              <BookPage logicalPage={targetPage} placement="single" {...pageProps} interactive={false} />
             </div>
           </div>
         )}
-        <button className="page-corner page-corner-back" aria-label="上一页" disabled={interactionLocked || targetFor("backward") === null} onPointerDown={(event) => beginGesture("backward", event)} onPointerMove={moveGesture} onPointerUp={(event) => endGesture(event)} onPointerCancel={(event) => endGesture(event, true)} onClick={(event) => { if (event.detail === 0) playTurn("backward"); }} />
-        <button className="page-corner page-corner-forward" aria-label="下一页" disabled={interactionLocked || targetFor("forward") === null} onPointerDown={(event) => beginGesture("forward", event)} onPointerMove={moveGesture} onPointerUp={(event) => endGesture(event)} onPointerCancel={(event) => endGesture(event, true)} onClick={(event) => { if (event.detail === 0) playTurn("forward"); }} />
+        {!singlePage && <><BookPage logicalPage={baseLeft} placement="left" {...pageProps} /><BookPage logicalPage={baseRight} placement="right" {...pageProps} /></>}
+        {turn && !singlePage && (
+          <div className={`turning-leaf turn-${turn.direction} ${turn.phase === "settling" ? "is-settling" : ""}`} aria-hidden="true">
+            <div className="leaf-face leaf-front">
+              <BookPage logicalPage={forward ? currentRight : currentLeft} placement={forward ? "right" : "left"} {...pageProps} interactive={false} />
+            </div>
+            <div className="leaf-face leaf-back">
+              <BookPage logicalPage={forward ? targetPage : targetPage + 1} placement={forward ? "left" : "right"} {...pageProps} interactive={false} />
+            </div>
+          </div>
+        )}
         <div className="page-spine" aria-hidden="true" />
         <span className="page-turn-status" role="status" aria-live="polite">第 {page + 1}{singlePage || page + 1 >= pageCount ? "页" : `—${page + 2}页`}</span>
       </div>
-      {pageCount > 1 && <span className="page-swipe-hint">拖动页角翻页</span>}
+      {pageCount > 1 && <span className="page-swipe-hint">轻扫书页翻页 · 方向键亦可</span>}
     </div>
   );
 }
@@ -230,15 +288,13 @@ export function FutureChapter({ tickets, depths, progress, ratios, baseShortSide
       {tickets.map((ticket, index) => {
         const distance = depths[index] - progress;
         const corridorDistance = distance * Math.max(2.4, tickets.length);
-        const depth = Math.abs(corridorDistance);
-        const visible = Math.max(0.6, 1 - depth * 0.24);
+        const perspective = getFuturePerspective(corridorDistance);
         const revealEnd = Math.max(0.02, Math.min(0.1, (depths[0] ?? 0.1) * 0.7));
         const revealRaw = Math.min(1, Math.max(0, (progress - 0.01) / (revealEnd - 0.01)));
         const corridorReveal = revealRaw * revealRaw * (3 - 2 * revealRaw);
-        const scale = Math.max(0.52, 0.96 - depth * 0.14);
-        const side = (index % 2 === 0 ? -1 : 1) * Math.min(22, depth * 17);
-        const sideOffset = stageWidth * side / 100;
-        const verticalOffset = stageHeight * corridorDistance * 0.54;
+        const sideDirection = index % 2 === 0 ? -1 : 1;
+        const sideOffset = stageWidth * perspective.sideOffsetRatio * sideDirection;
+        const verticalOffset = stageHeight * perspective.verticalOffsetRatio;
         const ratio = ratios[String(ticket.id)] ?? 1.75;
         const elongation = Math.max(ratio, 1 / ratio);
         const isSlender = elongation >= 2;
@@ -246,9 +302,10 @@ export function FutureChapter({ tickets, depths, progress, ratios, baseShortSide
         const targetShortSide = isSlender ? targetLongSide / elongation : baseShortSide;
         const targetWidth = ratio >= 1 ? targetLongSide : targetShortSide;
         const targetHeight = ratio >= 1 ? targetShortSide : targetLongSide;
-        const fitScale = Math.min(1, maxWidth / targetWidth, maxHeight / targetHeight);
+        const fitScale = getFutureTicketFitScale(targetWidth, targetHeight, maxWidth, maxHeight);
+        const ticketOpacity = perspective.opacity * corridorReveal;
         return (
-          <button key={ticket.id} className="corridor-ticket" style={{ width: `${targetWidth * fitScale}px`, height: `${targetHeight * fitScale}px`, opacity: visible * corridorReveal, pointerEvents: corridorReveal < 0.08 ? "none" : "auto", transform: `translate3d(calc(-50% + ${sideOffset}px), calc(-50% + ${verticalOffset}px), 0) scale(${scale})`, filter: `blur(${Math.min(1, Math.max(0, depth - 1.4) * 0.55)}px)` }} onClick={() => onSelect(ticket)}>
+          <button key={ticket.id} className="corridor-ticket" style={{ width: `${targetWidth * fitScale}px`, height: `${targetHeight * fitScale}px`, opacity: ticketOpacity, pointerEvents: ticketOpacity < 0.18 ? "none" : "auto", zIndex: perspective.layer, transform: `translate3d(calc(-50% + ${sideOffset}px), calc(-50% + ${verticalOffset}px), 0) scale(${perspective.scale})`, filter: `blur(${perspective.blur}px)` }} onClick={() => onSelect(ticket)}>
             <TicketFace ticket={ticket} onImageLoad={onImageLoad} />
           </button>
         );

@@ -1,5 +1,29 @@
 export type PageTurnDirection = "forward" | "backward";
 
+export const PAST_SWIPE_START_DISTANCE = 8;
+export const PAST_SWIPE_DISTANCE = 32;
+export const PAST_SWIPE_FAST_DISTANCE = 18;
+export const PAST_SWIPE_VELOCITY = 0.45;
+export const PAST_SWIPE_MAX_DURATION = 600;
+
+export function getPastSwipeDirection(deltaX: number, deltaY: number, minimumDistance = PAST_SWIPE_START_DISTANCE): PageTurnDirection | null {
+  if (Math.abs(deltaX) < minimumDistance || Math.abs(deltaX) <= Math.abs(deltaY)) return null;
+  return deltaX > 0 ? "forward" : "backward";
+}
+
+export function shouldCommitPastSwipe(distance: number, elapsed: number): boolean {
+  const absoluteDistance = Math.abs(distance);
+  const safeElapsed = Math.max(1, elapsed);
+  if (safeElapsed > PAST_SWIPE_MAX_DURATION) return false;
+  return absoluteDistance >= PAST_SWIPE_DISTANCE
+    || (absoluteDistance >= PAST_SWIPE_FAST_DISTANCE && absoluteDistance / safeElapsed >= PAST_SWIPE_VELOCITY);
+}
+
+export function getPastWheelDirection(deltaX: number, deltaY: number): PageTurnDirection | null {
+  if (Math.abs(deltaX) <= Math.abs(deltaY) || deltaX === 0) return null;
+  return deltaX > 0 ? "forward" : "backward";
+}
+
 export function getPastPageCount(ticketCount: number, rows: number): number {
   return Math.max(1, Math.ceil(ticketCount / Math.max(1, rows)));
 }
