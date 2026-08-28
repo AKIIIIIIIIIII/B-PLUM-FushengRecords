@@ -21,7 +21,7 @@
 
 修改工作流、输入输出或数据约定时，检查直接关联的 Skill，重点确认以下链路仍然连贯：
 
-- `make-life-ticket` → `bind-life-album` → `collect-life-tickets` → `export-life-tickets`
+- `make-life-ticket` → `bind-life-album` → `collect-life-tickets`
 - `implant-sample-tickets` → `make-life-ticket` → `collect-life-tickets`
 - `create-fusheng-record` 与它协调的各子 Skill
 
@@ -55,7 +55,7 @@
 
 ```text
 fix(make-life-ticket): 明确出票前的确认门槛
-feat(export-life-tickets): 支持浏览器本地票根导出
+feat(bind-life-album): 支持浏览器本地票根导出
 refactor(create-fusheng-record): 简化子技能路由说明
 ```
 

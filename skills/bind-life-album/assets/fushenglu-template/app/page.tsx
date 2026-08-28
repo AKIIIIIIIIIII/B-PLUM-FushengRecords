@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type WheelEvent } from "react";
 import { strToU8, zipSync } from "fflate";
-import { clearAllTickets, parseTicketFiles, readDefaultTicketsHidden, readStoredTickets, reconstructStoredTicketJson, restoreDefaultTickets, saveStoredTickets, type StoredTicket } from "./ticket-store";
+import { clearAllTickets, parseTicketFiles, readHiddenDefaultTicketNumbers, readStoredTickets, reconstructStoredTicketJson, restoreDefaultTickets, saveStoredTickets, type StoredTicket } from "./ticket-store";
 import { defaultManifest, type AlbumManifest, type Chapter, type Ticket } from "./album-types";
 import { getPastPageCount, normalizePastPage, remapPastPage } from "./past-pagination";
 import { AmbientWorld } from "./components/ambient-world";
@@ -46,7 +46,7 @@ export default function Home() {
   const [localTickets, setLocalTickets] = useState<Ticket[]>([]);
   const [seedTickets, setSeedTickets] = useState<Ticket[]>([]);
   const [manifest, setManifest] = useState<AlbumManifest>(defaultManifest);
-  const [defaultTicketsHidden, setDefaultTicketsHidden] = useState<boolean | null>(null);
+  const [hiddenDefaultTicketNumbers, setHiddenDefaultTicketNumbers] = useState<string[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const touchStart = useRef<number | null>(null);
@@ -96,14 +96,22 @@ export default function Home() {
   useEffect(() => {
     fetch("/album-manifest.json")
       .then((response) => response.ok ? response.json() as Promise<AlbumManifest> : Promise.reject())
-      .then((data) => {
+      .catch(() => defaultManifest)
+      .then(async (data) => {
         setManifest(data);
         setSeedTickets((data.tickets || []).map((ticket) => ({ ...ticket, id: ticket.ticketNumber, kind: ticket.kind === "past" ? "往昔纪念票" : "宇宙订单票", imported: true })));
-      })
-      .catch(() => setManifest(defaultManifest));
-    Promise.all([readStoredTickets(), readDefaultTicketsHidden()])
-      .then(([records, hidden]) => { hydrateTickets(records); setDefaultTicketsHidden(hidden); })
-      .catch(() => { setDefaultTicketsHidden(false); showImportMessage("本地藏本暂时无法读取"); });
+        try {
+          const [records, hiddenNumbers] = await Promise.all([
+            readStoredTickets(),
+            readHiddenDefaultTicketNumbers((data.tickets || []).map((ticket) => ticket.ticketNumber)),
+          ]);
+          hydrateTickets(records);
+          setHiddenDefaultTicketNumbers(hiddenNumbers);
+        } catch {
+          setHiddenDefaultTicketNumbers([]);
+          showImportMessage("本地藏本暂时无法读取");
+        }
+      });
     return () => objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
   }, [hydrateTickets, showImportMessage]);
 
@@ -124,6 +132,7 @@ export default function Home() {
     type ExportRecord = { ticketNumber: string; kind: "past" | "universe"; image?: Uint8Array; json: Uint8Array; imageStatus: "original" | "missing"; jsonStatus: "original" | "reconstructed" };
     const records = new Map<string, ExportRecord>();
     for (const ticket of manifest.tickets || []) {
+      if (hiddenDefaultTicketNumbers?.includes(ticket.ticketNumber)) continue;
       let image: Uint8Array | undefined;
       let imageStatus: ExportRecord["imageStatus"] = "missing";
       try { image = await fetchBytes(ticket.imageUrl || `/tickets/${ticket.ticketNumber}.png`); imageStatus = "original"; } catch { /* Missing images remain explicit in the export manifest. */ }
@@ -165,14 +174,15 @@ export default function Home() {
     const rebuilt = exported.filter((ticket) => ticket.json === "reconstructed").length;
     const missing = exported.filter((ticket) => ticket.image === "missing").length;
     showImportMessage(`已导出${exported.length}张票根${rebuilt ? `，其中${rebuilt}份 JSON 为重建` : ""}${missing ? `，${missing}张缺少图片` : ""}`);
-  }, [manifest, showImportMessage]);
+  }, [hiddenDefaultTicketNumbers, manifest, showImportMessage]);
 
   const allTickets = useMemo(() => {
     const byNumber = new Map<string | number, Ticket>();
-    if (defaultTicketsHidden === false) seedTickets.forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
+    const hiddenNumbers = new Set(hiddenDefaultTicketNumbers || []);
+    if (hiddenDefaultTicketNumbers !== null) seedTickets.filter((ticket) => !hiddenNumbers.has(String(ticket.ticketNumber || ticket.id))).forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
     localTickets.forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
     return [...byNumber.values()];
-  }, [defaultTicketsHidden, localTickets, seedTickets]);
+  }, [hiddenDefaultTicketNumbers, localTickets, seedTickets]);
   const pastCollection = allTickets.filter((ticket) => ticket.kind === "往昔纪念票").sort((a, b) => a.sortKey.localeCompare(b.sortKey));
   const futureCollection = allTickets.filter((ticket) => ticket.kind === "宇宙订单票").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
@@ -246,13 +256,14 @@ export default function Home() {
   };
   const clearCollection = () => {
     if (!window.confirm("确认清空当前浏览器中的全部票根吗？网站自带票根可稍后恢复。")) return;
-    clearAllTickets().then(() => {
-      hydrateTickets([]); setDefaultTicketsHidden(true); setSelected(null); setPastPage(0); setProgress(0); showImportMessage("全部票根已从此浏览器清空");
+    const defaultTicketNumbers = (manifest.tickets || []).map((ticket) => ticket.ticketNumber);
+    clearAllTickets(defaultTicketNumbers).then(() => {
+      hydrateTickets([]); setHiddenDefaultTicketNumbers(defaultTicketNumbers); setSelected(null); setPastPage(0); setProgress(0); showImportMessage("全部票根已从此浏览器清空");
     }).catch(() => showImportMessage("票根暂时无法清空，请再试一次"));
   };
   const restoreCollection = () => {
     restoreDefaultTickets().then(() => {
-      setDefaultTicketsHidden(false); setPastPage(0); setProgress(0); showImportMessage("默认票根已恢复");
+      setHiddenDefaultTicketNumbers([]); setPastPage(0); setProgress(0); showImportMessage("默认票根已恢复");
     }).catch(() => showImportMessage("默认票根暂时无法恢复，请再试一次"));
   };
 
@@ -284,7 +295,7 @@ export default function Home() {
 
       <div className="ui-stage absolute left-1/2 top-1/2" style={{ width: viewportLayout.designWidth, height: viewportLayout.designHeight, transform: `translate(-50%, -50%) scale(${viewportLayout.uiScale})` }}>
         <BrandMark manifest={manifest} />
-        {isOpen && <CollectionToolbar fileInputRef={fileInputRef} canExport={manifest.tickets.length > 0 || localTickets.length > 0} canClear={allTickets.length > 0} canRestore={defaultTicketsHidden === true} onExport={() => exportAllTickets().catch(() => showImportMessage("票根暂时无法导出，请再试一次"))} onClear={clearCollection} onRestore={restoreCollection} />}
+        {isOpen && <CollectionToolbar fileInputRef={fileInputRef} canExport={allTickets.length > 0} canClear={allTickets.length > 0} canRestore={(hiddenDefaultTicketNumbers?.length || 0) > 0} onExport={() => exportAllTickets().catch(() => showImportMessage("票根暂时无法导出，请再试一次"))} onClear={clearCollection} onRestore={restoreCollection} />}
         {importMessage && <div className="import-message" role="status">{importMessage}</div>}
 
         {!isOpen ? <AlbumCover manifest={manifest} onOpen={() => setIsOpen(true)} /> : (
