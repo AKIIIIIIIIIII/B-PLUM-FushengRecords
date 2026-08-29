@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "fictionalSample": true,
   "ticketNumber": "LT-U-20260829-M4Q9",
   "kind": "universe",
   "status": "ordered",

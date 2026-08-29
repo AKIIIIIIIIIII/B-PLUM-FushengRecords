@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type WheelEvent } from "react";
 import { strToU8, zipSync } from "fflate";
-import { clearAllTickets, parseTicketFiles, readHiddenDefaultTicketNumbers, readStoredTickets, reconstructStoredTicketJson, restoreDefaultTickets, saveStoredTickets, type StoredTicket } from "./ticket-store";
+import { clearUserTickets, collectedTicketRevision, deleteStoredTicket, isCollectedTicketHidden, parseTicketFiles, readStoredTickets, readTicketVisibilitySettings, reconstructStoredTicketJson, saveStoredTickets, saveTicketVisibilitySettings, type StoredTicket, type TicketVisibilitySettings } from "./ticket-store";
 import { defaultManifest, type AlbumManifest, type Chapter, type Ticket } from "./album-types";
 import { getPastPageCount, normalizePastPage, remapPastPage } from "./past-pagination";
 import { AmbientWorld } from "./components/ambient-world";
@@ -26,6 +26,7 @@ function reconstructManifestTicketJson(ticket: AlbumManifest["tickets"][number])
     export: { reconstructed: true },
   };
   if (ticket.note) data.note = ticket.note;
+  if (ticket.fictionalSample === true) data.fictionalSample = true;
   return JSON.stringify(data, null, 2) + "\n";
 }
 
@@ -34,6 +35,27 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
   if (!response.ok) throw new Error(`无法读取 ${url}`);
   return new Uint8Array(await response.arrayBuffer());
 }
+
+async function resolveManifestSampleFlags(data: AlbumManifest): Promise<AlbumManifest> {
+  const tickets = await Promise.all((data.tickets || []).map(async (ticket) => {
+    if (typeof ticket.fictionalSample === "boolean" || !ticket.dataUrl) return ticket;
+    try {
+      const response = await fetch(ticket.dataUrl);
+      if (!response.ok) return ticket;
+      const ticketData = await response.json() as { fictionalSample?: unknown };
+      return { ...ticket, fictionalSample: ticketData.fictionalSample === true };
+    } catch {
+      return ticket;
+    }
+  }));
+  return { ...data, tickets };
+}
+
+const defaultVisibilitySettings: TicketVisibilitySettings = {
+  samplesVisible: true,
+  hiddenSampleTicketNumbers: [],
+  hiddenCollectedTickets: [],
+};
 
 export default function Home() {
   const [isOpen, setIsOpen] = useState(false);
@@ -46,7 +68,7 @@ export default function Home() {
   const [localTickets, setLocalTickets] = useState<Ticket[]>([]);
   const [seedTickets, setSeedTickets] = useState<Ticket[]>([]);
   const [manifest, setManifest] = useState<AlbumManifest>(defaultManifest);
-  const [hiddenDefaultTicketNumbers, setHiddenDefaultTicketNumbers] = useState<string[] | null>(null);
+  const [visibilitySettings, setVisibilitySettings] = useState<TicketVisibilitySettings | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const touchStart = useRef<number | null>(null);
@@ -85,6 +107,8 @@ export default function Home() {
           kind: record.kind === "past" ? "往昔纪念票" : "宇宙订单票",
           imageUrl,
           imported: true,
+          fictionalSample: record.fictionalSample === true,
+          source: "browser",
         };
       });
     objectUrlsRef.current = urls;
@@ -97,18 +121,19 @@ export default function Home() {
     fetch("/album-manifest.json")
       .then((response) => response.ok ? response.json() as Promise<AlbumManifest> : Promise.reject())
       .catch(() => defaultManifest)
+      .then(resolveManifestSampleFlags)
       .then(async (data) => {
         setManifest(data);
-        setSeedTickets((data.tickets || []).map((ticket) => ({ ...ticket, id: ticket.ticketNumber, kind: ticket.kind === "past" ? "往昔纪念票" : "宇宙订单票", imported: true })));
+        setSeedTickets((data.tickets || []).map((ticket) => ({ ...ticket, id: ticket.ticketNumber, kind: ticket.kind === "past" ? "往昔纪念票" : "宇宙订单票", imported: true, fictionalSample: ticket.fictionalSample === true, source: "manifest" })));
         try {
-          const [records, hiddenNumbers] = await Promise.all([
+          const [records, settings] = await Promise.all([
             readStoredTickets(),
-            readHiddenDefaultTicketNumbers((data.tickets || []).map((ticket) => ticket.ticketNumber)),
+            readTicketVisibilitySettings(data.tickets || []),
           ]);
           hydrateTickets(records);
-          setHiddenDefaultTicketNumbers(hiddenNumbers);
+          setVisibilitySettings(settings);
         } catch {
-          setHiddenDefaultTicketNumbers([]);
+          setVisibilitySettings(defaultVisibilitySettings);
           showImportMessage("本地藏本暂时无法读取");
         }
       });
@@ -123,16 +148,41 @@ export default function Home() {
       return;
     }
     await saveStoredTickets(result.tickets);
+    const importedNumbers = new Set(result.tickets.map((ticket) => ticket.ticketNumber));
+    if (visibilitySettings) {
+      const nextSettings = {
+        ...visibilitySettings,
+        hiddenCollectedTickets: visibilitySettings.hiddenCollectedTickets.filter((ticket) => !importedNumbers.has(ticket.ticketNumber)),
+      };
+      await saveTicketVisibilitySettings(nextSettings);
+      setVisibilitySettings(nextSettings);
+    }
     await reloadLocalTickets();
     const savedText = result.tickets.length === 1 ? "一张票根已收入藏本" : `${result.tickets.length}张票根已收入藏本`;
     showImportMessage(result.skipped ? `${savedText}；${result.rejected[0]?.reason || `另有${result.skipped}个文件未识别`}` : savedText);
-  }, [reloadLocalTickets, showImportMessage]);
+  }, [reloadLocalTickets, showImportMessage, visibilitySettings]);
+
+  const allTickets = useMemo(() => {
+    const byNumber = new Map<string | number, Ticket>();
+    if (!visibilitySettings) return [];
+    const hiddenSamples = new Set(visibilitySettings.hiddenSampleTicketNumbers);
+    const isVisible = (ticket: Ticket) => {
+      const ticketNumber = String(ticket.ticketNumber || ticket.id);
+      if (ticket.fictionalSample === true) return visibilitySettings.samplesVisible && !hiddenSamples.has(ticketNumber);
+      if (ticket.source === "manifest") return !isCollectedTicketHidden({ ticketNumber, collectionRevision: ticket.collectionRevision }, visibilitySettings.hiddenCollectedTickets);
+      return true;
+    };
+    seedTickets.filter(isVisible).forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
+    localTickets.filter(isVisible).forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
+    return [...byNumber.values()];
+  }, [localTickets, seedTickets, visibilitySettings]);
 
   const exportAllTickets = useCallback(async () => {
     type ExportRecord = { ticketNumber: string; kind: "past" | "universe"; image?: Uint8Array; json: Uint8Array; imageStatus: "original" | "missing"; jsonStatus: "original" | "reconstructed" };
     const records = new Map<string, ExportRecord>();
+    const visibleNumbers = new Set(allTickets.map((ticket) => String(ticket.ticketNumber || ticket.id)));
     for (const ticket of manifest.tickets || []) {
-      if (hiddenDefaultTicketNumbers?.includes(ticket.ticketNumber)) continue;
+      if (!visibleNumbers.has(ticket.ticketNumber)) continue;
       let image: Uint8Array | undefined;
       let imageStatus: ExportRecord["imageStatus"] = "missing";
       try { image = await fetchBytes(ticket.imageUrl || `/tickets/${ticket.ticketNumber}.png`); imageStatus = "original"; } catch { /* Missing images remain explicit in the export manifest. */ }
@@ -146,6 +196,7 @@ export default function Home() {
       records.set(ticket.ticketNumber, { ticketNumber: ticket.ticketNumber, kind: ticket.kind, image, json, imageStatus, jsonStatus });
     }
     for (const ticket of await readStoredTickets()) {
+      if (!visibleNumbers.has(ticket.ticketNumber)) continue;
       const previous = records.get(ticket.ticketNumber);
       const image = ticket.image ? new Uint8Array(await ticket.image.arrayBuffer()) : previous?.image;
       const rawJson = ticket.rawJson ? new Uint8Array(await ticket.rawJson.arrayBuffer()) : strToU8(reconstructStoredTicketJson(ticket));
@@ -174,15 +225,8 @@ export default function Home() {
     const rebuilt = exported.filter((ticket) => ticket.json === "reconstructed").length;
     const missing = exported.filter((ticket) => ticket.image === "missing").length;
     showImportMessage(`已导出${exported.length}张票根${rebuilt ? `，其中${rebuilt}份 JSON 为重建` : ""}${missing ? `，${missing}张缺少图片` : ""}`);
-  }, [hiddenDefaultTicketNumbers, manifest, showImportMessage]);
+  }, [allTickets, manifest, showImportMessage]);
 
-  const allTickets = useMemo(() => {
-    const byNumber = new Map<string | number, Ticket>();
-    const hiddenNumbers = new Set(hiddenDefaultTicketNumbers || []);
-    if (hiddenDefaultTicketNumbers !== null) seedTickets.filter((ticket) => !hiddenNumbers.has(String(ticket.ticketNumber || ticket.id))).forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
-    localTickets.forEach((ticket) => byNumber.set(ticket.ticketNumber || ticket.id, ticket));
-    return [...byNumber.values()];
-  }, [hiddenDefaultTicketNumbers, localTickets, seedTickets]);
   const pastCollection = allTickets.filter((ticket) => ticket.kind === "往昔纪念票").sort((a, b) => a.sortKey.localeCompare(b.sortKey));
   const futureCollection = allTickets.filter((ticket) => ticket.kind === "宇宙订单票").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
@@ -254,18 +298,67 @@ export default function Home() {
     setChapter(nextChapter);
     setSelected(null);
   };
+  const persistVisibility = useCallback(async (settings: TicketVisibilitySettings) => {
+    await saveTicketVisibilitySettings(settings);
+    setVisibilitySettings(settings);
+  }, []);
+  const toggleSamples = () => {
+    if (!visibilitySettings) return;
+    const nextSettings = visibilitySettings.samplesVisible && allTickets.some((ticket) => ticket.fictionalSample === true)
+      ? { ...visibilitySettings, samplesVisible: false }
+      : { ...visibilitySettings, samplesVisible: true, hiddenSampleTicketNumbers: [] };
+    persistVisibility(nextSettings).then(() => {
+      setSelected(null); setPastPage(0); setProgress(0);
+      showImportMessage(nextSettings.samplesVisible ? "样票已显示" : "样票已隐藏");
+    }).catch(() => showImportMessage("样票显示状态暂时无法保存，请再试一次"));
+  };
   const clearCollection = () => {
-    if (!window.confirm("确认清空当前浏览器中的全部票根吗？网站自带票根可稍后恢复。")) return;
-    const defaultTicketNumbers = (manifest.tickets || []).map((ticket) => ticket.ticketNumber);
-    clearAllTickets(defaultTicketNumbers).then(() => {
-      hydrateTickets([]); setHiddenDefaultTicketNumbers(defaultTicketNumbers); setSelected(null); setPastPage(0); setProgress(0); showImportMessage("全部票根已从此浏览器清空");
-    }).catch(() => showImportMessage("票根暂时无法清空，请再试一次"));
+    if (!visibilitySettings || !window.confirm("确认清空全部用户票根吗？样票不会受到影响；原票根重新导入或收录后会再次显示。")) return;
+    const hiddenByIdentity = new Map(visibilitySettings.hiddenCollectedTickets.map((ticket) => [`${ticket.ticketNumber}\u0000${ticket.collectionRevision}`, ticket]));
+    for (const ticket of manifest.tickets || []) {
+      if (ticket.fictionalSample === true) continue;
+      const hidden = { ticketNumber: ticket.ticketNumber, collectionRevision: collectedTicketRevision(ticket) };
+      hiddenByIdentity.set(`${hidden.ticketNumber}\u0000${hidden.collectionRevision}`, hidden);
+    }
+    const nextSettings = { ...visibilitySettings, hiddenCollectedTickets: [...hiddenByIdentity.values()] };
+    clearUserTickets(nextSettings).then(async () => {
+      setVisibilitySettings(nextSettings);
+      await reloadLocalTickets();
+      setSelected(null); setPastPage(0); setProgress(0); showImportMessage("用户票根已清空，样票保持不变");
+    }).catch(() => showImportMessage("用户票根暂时无法清空，请再试一次"));
   };
-  const restoreCollection = () => {
-    restoreDefaultTickets().then(() => {
-      setHiddenDefaultTicketNumbers([]); setPastPage(0); setProgress(0); showImportMessage("默认票根已恢复");
-    }).catch(() => showImportMessage("默认票根暂时无法恢复，请再试一次"));
+  const deleteTicket = (ticket: Ticket) => {
+    if (!visibilitySettings) return;
+    const ticketNumber = String(ticket.ticketNumber || ticket.id);
+    const isSample = ticket.fictionalSample === true;
+    const prompt = isSample
+      ? "确认隐藏这张样票吗？之后点击“显示样票”可以恢复。"
+      : "确认删除这张用户票根吗？重新导入或收录后会再次显示。";
+    if (!window.confirm(prompt)) return;
+    if (isSample) {
+      const nextSettings = { ...visibilitySettings, hiddenSampleTicketNumbers: [...new Set([...visibilitySettings.hiddenSampleTicketNumbers, ticketNumber])] };
+      persistVisibility(nextSettings).then(() => {
+        setSelected(null); setPastPage(0); setProgress(0); showImportMessage("这张样票已隐藏");
+      }).catch(() => showImportMessage("样票暂时无法隐藏，请再试一次"));
+      return;
+    }
+    const manifestTicket = (manifest.tickets || []).find((item) => item.ticketNumber === ticketNumber && item.fictionalSample !== true);
+    const hiddenCollectedTickets = [...visibilitySettings.hiddenCollectedTickets];
+    if (manifestTicket) {
+      const hidden = { ticketNumber, collectionRevision: collectedTicketRevision(manifestTicket) };
+      if (!isCollectedTicketHidden(manifestTicket, hiddenCollectedTickets)) hiddenCollectedTickets.push(hidden);
+    }
+    const nextSettings = { ...visibilitySettings, hiddenCollectedTickets };
+    Promise.all([deleteStoredTicket(ticketNumber), saveTicketVisibilitySettings(nextSettings)]).then(async () => {
+      setVisibilitySettings(nextSettings);
+      await reloadLocalTickets();
+      setSelected(null); setPastPage(0); setProgress(0); showImportMessage("这张用户票根已删除");
+    }).catch(() => showImportMessage("票根暂时无法删除，请再试一次"));
   };
+
+  const hasSamples = seedTickets.some((ticket) => ticket.fictionalSample === true) || localTickets.some((ticket) => ticket.fictionalSample === true);
+  const hasVisibleSamples = allTickets.some((ticket) => ticket.fictionalSample === true);
+  const hasVisibleUserTickets = allTickets.some((ticket) => ticket.fictionalSample !== true);
 
   return (
     <main
@@ -295,7 +388,7 @@ export default function Home() {
 
       <div className="ui-stage absolute left-1/2 top-1/2" style={{ width: viewportLayout.designWidth, height: viewportLayout.designHeight, transform: `translate(-50%, -50%) scale(${viewportLayout.uiScale})` }}>
         <BrandMark manifest={manifest} />
-        {isOpen && <CollectionToolbar fileInputRef={fileInputRef} canExport={allTickets.length > 0} canClear={allTickets.length > 0} canRestore={(hiddenDefaultTicketNumbers?.length || 0) > 0} onExport={() => exportAllTickets().catch(() => showImportMessage("票根暂时无法导出，请再试一次"))} onClear={clearCollection} onRestore={restoreCollection} />}
+        {isOpen && <CollectionToolbar fileInputRef={fileInputRef} canExport={allTickets.length > 0} canClear={hasVisibleUserTickets} hasSamples={hasSamples} samplesVisible={hasVisibleSamples} onExport={() => exportAllTickets().catch(() => showImportMessage("票根暂时无法导出，请再试一次"))} onClear={clearCollection} onToggleSamples={toggleSamples} />}
         {importMessage && <div className="import-message" role="status">{importMessage}</div>}
 
         {!isOpen ? <AlbumCover manifest={manifest} onOpen={() => setIsOpen(true)} /> : (
@@ -310,7 +403,7 @@ export default function Home() {
         {!isOpen && manifest.contact && <ContactNote contact={manifest.contact} />}
         <footer className="absolute right-[38px] bottom-7 z-[8] text-[max(11px,var(--readable-small))] leading-[1.2] tracking-[.24em] text-[rgba(214,178,105,.48)] max-[760px]:right-[17px] max-[760px]:bottom-[18px]">{manifest.edition}</footer>
       </div>
-      {selected && <TicketFocus ticket={selected} onClose={() => setSelected(null)} scale={Math.max(viewportLayout.uiScale, viewportLayout.isMobile ? 0.78 : 0.65)} />}
+      {selected && <TicketFocus ticket={selected} onClose={() => setSelected(null)} onDelete={() => deleteTicket(selected)} scale={Math.max(viewportLayout.uiScale, viewportLayout.isMobile ? 0.78 : 0.65)} />}
     </main>
   );
 }

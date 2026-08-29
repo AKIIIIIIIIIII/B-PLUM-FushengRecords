@@ -13,6 +13,9 @@ export type Ticket = {
   imageUrl?: string;
   dataUrl?: string;
   imported?: boolean;
+  fictionalSample?: boolean;
+  collectionRevision?: string;
+  source?: "manifest" | "browser";
 };
 
 export type AlbumContact = {
@@ -30,7 +33,7 @@ export type AlbumManifest = {
   subtitle: string;
   edition: string;
   contact?: AlbumContact;
-  tickets: Array<Omit<Ticket, "id" | "kind"> & { ticketNumber: string; kind: "past" | "universe" }>;
+  tickets: Array<Omit<Ticket, "id" | "kind" | "source"> & { ticketNumber: string; kind: "past" | "universe" }>;
 };
 
 export const defaultManifest: AlbumManifest = {

@@ -28,11 +28,11 @@ description: "批量制作完整的虚构样票，默认过去 5 张、未来 5 
 独立植入模式收到“出票”，或协调准备模式确认上游授权有效后：
 
 1. 读取 `../make-life-ticket/references/ticket-data.md`、`visual-language.md` 与 `rendering-workflow.md`，并严格遵循其中的正式出票、印章、涂鸦与渲染规则。
-2. 为每张已确认样票生成唯一票号与 `createdAt`，构造完整 schemaVersion 1 JSON。除票号、创建时间和生成结果外，不得在此阶段再随机或改写确认过的内容；不要写入用户个人信息。
+2. 为每张已确认样票生成唯一票号与 `createdAt`，构造完整 schemaVersion 1 JSON，并保留顶层 `fictionalSample: true`。除票号、创建时间和生成结果外，不得在此阶段再随机或改写确认过的内容；不要写入用户个人信息。
 3. 逐张先生成与已确认画面构想相符的无文字主图；首轮因审核、乱码、带字、签名、水印或主体不完整而失败时，用非品牌化描述重试一次。重试仍失败时，将 `image.source` 设为 `procedural`，使用相关的本地程序化象征画面继续出票。
 4. 逐张独立生成已确认关键词的透明事件涂鸦 PNG；首轮失败时以更中性的视觉描述重试一次。仍失败时把 `design.eventDoodle.status` 设为 `skipped`，不传 `--doodle`，继续出票；不得用程序化图标替代。
-5. 使用 `../make-life-ticket/scripts/render_ticket.py` 渲染：主图成功时传 `--image <图片路径> --require-image`，涂鸦成功时传 `--doodle <透明 PNG 路径>`；程序化主图或跳过涂鸦时依照 `rendering-workflow.md` 省略对应参数。渲染器必须使用确认好的 `design.shapeStyle`、`stampStyle` 与涂鸦 metadata。
-6. 将所有完成的 PNG 与 JSON 写入同一临时输出目录；只有两者完整且可打开的票才计为成功。
+5. 使用 `../make-life-ticket/scripts/render_ticket.py` 渲染并始终传入 `--fictional-sample`：主图成功时传 `--image <图片路径> --require-image`，涂鸦成功时传 `--doodle <透明 PNG 路径>`；程序化主图或跳过涂鸦时依照 `rendering-workflow.md` 省略对应参数。渲染器必须使用确认好的 `design.shapeStyle`、`stampStyle` 与涂鸦 metadata。
+6. 将所有完成的 PNG 与 JSON 写入同一临时输出目录；只有两者完整且可打开、且最终 JSON 顶层 `fictionalSample` 严格等于 `true` 的票才计为成功。
 7. 独立植入模式调用 `../collect-life-tickets/scripts/collect-tickets.mjs <藏本目录> <输出目录>` 收录，并使用 `../bind-life-album/scripts/validate-album.mjs` 检查藏本。协调准备模式只把临时目录、完整票数、程序化主图数、跳过涂鸦数和失败项返回上游，不自行收录或删除临时文件。
 
 默认批量生成可能耗时较长，持续报告完成数量。失败项不能阻断已完成的票，也不能被静默跳过。协调准备模式下若一张完整票都未生成，明确报告失败，让上游在造册前停止；独立植入模式最终汇总成功收录数，协调准备模式汇总成功准备数。

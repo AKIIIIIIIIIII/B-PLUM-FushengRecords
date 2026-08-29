@@ -117,6 +117,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 
 字段枚举：
 
+- `fictionalSample`：仅虚构演示样票使用的可选布尔字段；样票必须为 `true`，真实用户票根不得自动添加
 - `kind`：`past`、`universe`
 - `status`：`ended`、`ordered`
 - `image.source`：`uploaded`、`generated`、`procedural`

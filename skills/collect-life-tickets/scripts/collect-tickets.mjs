@@ -3,6 +3,7 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const SHAPES = new Set(["intermission-stub", "film-edge", "chapter-pass"]);
 
@@ -125,7 +126,9 @@ export async function collectTickets(albumDir, inputs) {
         sortKey: sortKey(data),
         imageUrl: "/tickets/" + imageName,
         dataUrl: "/tickets/" + jsonName,
-        imported: true
+        imported: true,
+        fictionalSample: data.fictionalSample === true,
+        collectionRevision: `${new Date().toISOString()}-${randomUUID()}`
       });
       if (existed) updated += 1;
       else imported += 1;
