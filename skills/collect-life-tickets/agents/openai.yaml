@@ -1,4 +1,4 @@
 interface:
   display_name: "收录票根"
-  short_description: "把同名 PNG 与 JSON 无损收入已有浮生录藏本"
+  short_description: "把同名 PNG 与 JSON 完整收进已有《浮生录》藏本"
   default_prompt: "使用 $collect-life-tickets 将这些人生票根收入现有《浮生录》。"

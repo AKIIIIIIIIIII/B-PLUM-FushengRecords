@@ -1,4 +1,4 @@
 interface:
   display_name: "样票植入"
-  short_description: "批量准备虚构随机样票，或确认后植入已有空册"
+  short_description: "批量制作虚构随机样票，或确认后植入已有空册"
   default_prompt: "使用 $implant-sample-tickets 为这本空白《浮生录》植入默认样票。"
