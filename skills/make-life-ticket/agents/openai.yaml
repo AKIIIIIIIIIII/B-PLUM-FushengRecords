@@ -1,4 +1,4 @@
 interface:
   display_name: "人生票根"
-  short_description: "将往昔片段与显化愿望，制成可以收藏并再次生成的复古人生票根"
+  short_description: "把往昔经历与未来愿望做成可收藏、可再次读取的复古人生票根"
   default_prompt: "使用 $make-life-ticket 开幕，并引导我制作一张人生票根。"
