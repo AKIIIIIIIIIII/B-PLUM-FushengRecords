@@ -43,6 +43,8 @@ if (!failures.length) {
         failures.push("票根数据无效：" + (ticket.ticketNumber || "未编号"));
         continue;
       }
+      if (ticket.fictionalSample !== undefined && typeof ticket.fictionalSample !== "boolean") failures.push("票根 fictionalSample 必须是布尔值：" + ticket.ticketNumber);
+      if (ticket.collectionRevision !== undefined && typeof ticket.collectionRevision !== "string") failures.push("票根 collectionRevision 必须是字符串：" + ticket.ticketNumber);
       const imagePath = join(albumDir, "public", ticket.imageUrl.replace(/^\//, ""));
       let imageShape = null;
       try {

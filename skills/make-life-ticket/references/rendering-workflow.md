@@ -162,6 +162,14 @@ python3 scripts/render_ticket.py --input <票根.json> --output-dir <输出目�
 --doodle <透明 PNG 路径>
 ```
 
+虚构演示样票必须追加：
+
+```bash
+--fictional-sample
+```
+
+该参数会在最终 JSON 落盘前强制写入顶层 `fictionalSample: true`，即使输入 JSON 漏写或误写为 `false`。真实用户票根不得传入该参数。
+
 用户明确指定印章款式时可追加：
 
 ```bash

@@ -9,6 +9,24 @@ export type StoredTicket = {
   sortKey: string;
   image?: Blob;
   rawJson?: Blob;
+  fictionalSample?: boolean;
+};
+
+export type HiddenCollectedTicket = {
+  ticketNumber: string;
+  collectionRevision: string;
+};
+
+export type TicketVisibilitySettings = {
+  samplesVisible: boolean;
+  hiddenSampleTicketNumbers: string[];
+  hiddenCollectedTickets: HiddenCollectedTicket[];
+};
+
+export type ManifestVisibilityTicket = {
+  ticketNumber: string;
+  fictionalSample?: boolean;
+  collectionRevision?: string;
 };
 
 const DATABASE_NAME = "fushenglu-local-album";
@@ -16,6 +34,9 @@ const STORE_NAME = "tickets";
 const SETTINGS_STORE_NAME = "settings";
 const DEFAULT_TICKETS_HIDDEN_KEY = "defaultTicketsHidden";
 const HIDDEN_DEFAULT_TICKET_NUMBERS_KEY = "hiddenDefaultTicketNumbers";
+const SAMPLES_VISIBLE_KEY = "samplesVisible";
+const HIDDEN_SAMPLE_TICKET_NUMBERS_KEY = "hiddenSampleTicketNumbers";
+const HIDDEN_COLLECTED_TICKETS_KEY = "hiddenCollectedTickets";
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -57,61 +78,132 @@ export async function saveStoredTickets(tickets: StoredTicket[]): Promise<void> 
   database.close();
 }
 
+export async function deleteStoredTicket(ticketNumber: string): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).delete(ticketNumber);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+}
+
 export function resolveHiddenDefaultTicketNumbers(value: unknown, currentTicketNumbers: string[]): string[] {
   if (value === true) return [...new Set(currentTicketNumbers.filter(Boolean))];
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((ticketNumber): ticketNumber is string => typeof ticketNumber === "string" && ticketNumber.length > 0))];
 }
 
-async function writeHiddenDefaultTicketNumbers(ticketNumbers: string[], removeLegacy = false): Promise<void> {
+function normalizeHiddenCollectedTickets(value: unknown): HiddenCollectedTicket[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Map<string, HiddenCollectedTicket>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const ticketNumber = "ticketNumber" in item ? item.ticketNumber : undefined;
+    const collectionRevision = "collectionRevision" in item ? item.collectionRevision : undefined;
+    if (typeof ticketNumber === "string" && ticketNumber && typeof collectionRevision === "string") {
+      unique.set(`${ticketNumber}\u0000${collectionRevision}`, { ticketNumber, collectionRevision });
+    }
+  }
+  return [...unique.values()];
+}
+
+export function collectedTicketRevision(ticket: ManifestVisibilityTicket): string {
+  return ticket.collectionRevision || "";
+}
+
+export function isCollectedTicketHidden(ticket: ManifestVisibilityTicket, hidden: HiddenCollectedTicket[]): boolean {
+  const revision = collectedTicketRevision(ticket);
+  return hidden.some((item) => item.ticketNumber === ticket.ticketNumber && item.collectionRevision === revision);
+}
+
+export function migrateLegacyTicketVisibility(value: unknown, manifestTickets: ManifestVisibilityTicket[]): TicketVisibilitySettings {
+  const legacyNumbers = resolveHiddenDefaultTicketNumbers(value, manifestTickets.map((ticket) => ticket.ticketNumber));
+  const legacySet = new Set(legacyNumbers);
+  const sampleTickets = manifestTickets.filter((ticket) => ticket.fictionalSample === true);
+  const hiddenSampleTicketNumbers = sampleTickets.filter((ticket) => legacySet.has(ticket.ticketNumber)).map((ticket) => ticket.ticketNumber);
+  const allSamplesHidden = sampleTickets.length > 0 && hiddenSampleTicketNumbers.length === sampleTickets.length;
+  return {
+    samplesVisible: !allSamplesHidden,
+    hiddenSampleTicketNumbers: allSamplesHidden ? [] : hiddenSampleTicketNumbers,
+    hiddenCollectedTickets: manifestTickets
+      .filter((ticket) => ticket.fictionalSample !== true && legacySet.has(ticket.ticketNumber))
+      .map((ticket) => ({ ticketNumber: ticket.ticketNumber, collectionRevision: collectedTicketRevision(ticket) })),
+  };
+}
+
+export async function saveTicketVisibilitySettings(settings: TicketVisibilitySettings): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(SETTINGS_STORE_NAME, "readwrite");
     const store = transaction.objectStore(SETTINGS_STORE_NAME);
-    store.put({ key: HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, value: ticketNumbers });
-    if (removeLegacy) store.delete(DEFAULT_TICKETS_HIDDEN_KEY);
+    store.put({ key: SAMPLES_VISIBLE_KEY, value: settings.samplesVisible });
+    store.put({ key: HIDDEN_SAMPLE_TICKET_NUMBERS_KEY, value: resolveHiddenDefaultTicketNumbers(settings.hiddenSampleTicketNumbers, []) });
+    store.put({ key: HIDDEN_COLLECTED_TICKETS_KEY, value: normalizeHiddenCollectedTickets(settings.hiddenCollectedTickets) });
+    store.delete(DEFAULT_TICKETS_HIDDEN_KEY);
+    store.delete(HIDDEN_DEFAULT_TICKET_NUMBERS_KEY);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
   database.close();
 }
 
-export async function readHiddenDefaultTicketNumbers(currentTicketNumbers: string[]): Promise<string[]> {
+export async function readTicketVisibilitySettings(manifestTickets: ManifestVisibilityTicket[]): Promise<TicketVisibilitySettings> {
   const database = await openDatabase();
-  const records = await new Promise<{ current?: { value?: unknown }; legacy?: { value?: unknown } }>((resolve, reject) => {
+  const records = await new Promise<Record<string, { value?: unknown } | undefined>>((resolve, reject) => {
     const transaction = database.transaction(SETTINGS_STORE_NAME, "readonly");
     const store = transaction.objectStore(SETTINGS_STORE_NAME);
-    const currentRequest = store.get(HIDDEN_DEFAULT_TICKET_NUMBERS_KEY);
-    const legacyRequest = store.get(DEFAULT_TICKETS_HIDDEN_KEY);
-    const result: { current?: { value?: unknown }; legacy?: { value?: unknown } } = {};
-    currentRequest.onsuccess = () => { result.current = currentRequest.result; };
-    legacyRequest.onsuccess = () => { result.legacy = legacyRequest.result; };
-    currentRequest.onerror = () => reject(currentRequest.error);
-    legacyRequest.onerror = () => reject(legacyRequest.error);
+    const keys = [SAMPLES_VISIBLE_KEY, HIDDEN_SAMPLE_TICKET_NUMBERS_KEY, HIDDEN_COLLECTED_TICKETS_KEY, HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, DEFAULT_TICKETS_HIDDEN_KEY];
+    const result: Record<string, { value?: unknown } | undefined> = {};
+    for (const key of keys) {
+      const request = store.get(key);
+      request.onsuccess = () => { result[key] = request.result; };
+      request.onerror = () => reject(request.error);
+    }
     transaction.onerror = () => reject(transaction.error);
     transaction.oncomplete = () => { database.close(); resolve(result); };
   });
-  const sourceValue = records.current?.value ?? records.legacy?.value;
-  const ticketNumbers = resolveHiddenDefaultTicketNumbers(sourceValue, currentTicketNumbers);
-  if (!records.current && records.legacy) await writeHiddenDefaultTicketNumbers(ticketNumbers, true);
-  return ticketNumbers;
+  const hasCurrentSettings = records[SAMPLES_VISIBLE_KEY] || records[HIDDEN_SAMPLE_TICKET_NUMBERS_KEY] || records[HIDDEN_COLLECTED_TICKETS_KEY];
+  if (hasCurrentSettings) {
+    return {
+      samplesVisible: records[SAMPLES_VISIBLE_KEY]?.value !== false,
+      hiddenSampleTicketNumbers: resolveHiddenDefaultTicketNumbers(records[HIDDEN_SAMPLE_TICKET_NUMBERS_KEY]?.value, []),
+      hiddenCollectedTickets: normalizeHiddenCollectedTickets(records[HIDDEN_COLLECTED_TICKETS_KEY]?.value),
+    };
+  }
+
+  const settings = migrateLegacyTicketVisibility(
+    records[HIDDEN_DEFAULT_TICKET_NUMBERS_KEY]?.value ?? records[DEFAULT_TICKETS_HIDDEN_KEY]?.value,
+    manifestTickets,
+  );
+  await saveTicketVisibilitySettings(settings);
+  return settings;
 }
 
-export async function clearAllTickets(defaultTicketNumbers: string[]): Promise<void> {
+export async function clearUserTickets(settings: TicketVisibilitySettings): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction([STORE_NAME, SETTINGS_STORE_NAME], "readwrite");
-    transaction.objectStore(STORE_NAME).clear();
-    transaction.objectStore(SETTINGS_STORE_NAME).put({ key: HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, value: resolveHiddenDefaultTicketNumbers(defaultTicketNumbers, []) });
-    transaction.objectStore(SETTINGS_STORE_NAME).delete(DEFAULT_TICKETS_HIDDEN_KEY);
+    const ticketStore = transaction.objectStore(STORE_NAME);
+    const cursorRequest = ticketStore.openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      const ticket = cursor.value as StoredTicket;
+      if (ticket.fictionalSample !== true) cursor.delete();
+      cursor.continue();
+    };
+    const settingStore = transaction.objectStore(SETTINGS_STORE_NAME);
+    settingStore.put({ key: SAMPLES_VISIBLE_KEY, value: settings.samplesVisible });
+    settingStore.put({ key: HIDDEN_SAMPLE_TICKET_NUMBERS_KEY, value: resolveHiddenDefaultTicketNumbers(settings.hiddenSampleTicketNumbers, []) });
+    settingStore.put({ key: HIDDEN_COLLECTED_TICKETS_KEY, value: normalizeHiddenCollectedTickets(settings.hiddenCollectedTickets) });
+    settingStore.delete(DEFAULT_TICKETS_HIDDEN_KEY);
+    settingStore.delete(HIDDEN_DEFAULT_TICKET_NUMBERS_KEY);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
   database.close();
-}
-
-export async function restoreDefaultTickets(): Promise<void> {
-  await writeHiddenDefaultTicketNumbers([], true);
 }
 
 type TicketJson = {
@@ -124,6 +216,7 @@ type TicketJson = {
   createdAt?: string;
   time?: { mode?: string; display?: string; raw?: string };
   design?: { shapeStyle?: TicketShape };
+  fictionalSample?: boolean;
 };
 
 type TicketShape = "intermission-stub" | "film-edge" | "chapter-pass";
@@ -238,6 +331,7 @@ export async function parseTicketFiles(files: File[]): Promise<{ tickets: Stored
         sortKey: ticketSortKey(data),
         image,
         rawJson: new Blob([rawText], { type: "application/json" }),
+        fictionalSample: data.fictionalSample === true,
       });
     } catch {
       skipped += 1;
@@ -276,6 +370,7 @@ export async function parseTicketFiles(files: File[]): Promise<{ tickets: Stored
       createdAt: new Date().toISOString(),
       sortKey: new Date().toISOString(),
       image,
+      fictionalSample: false,
     });
   }
 
@@ -298,6 +393,7 @@ export function reconstructStoredTicketJson(ticket: StoredTicket): string {
     createdAt: ticket.createdAt,
     export: { reconstructed: true },
   };
+  if (ticket.fictionalSample === true) data.fictionalSample = true;
   if (ticket.note) data.note = ticket.note;
   return JSON.stringify(data, null, 2) + "\n";
 }

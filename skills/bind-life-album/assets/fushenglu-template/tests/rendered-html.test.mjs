@@ -18,13 +18,24 @@ const viewportSource = await readFile(new URL("../app/viewport-layout.ts", impor
 const viewportModule = await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(viewportSource, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString("base64")}`);
 const storeModule = await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(storeSource, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString("base64")}`);
 
-test("IndexedDB v4 preserves tickets and hidden static ticket numbers", () => {
+test("IndexedDB v4 preserves tickets and migrates separated visibility settings", () => {
   assert.match(storeSource, /indexedDB\.open\(DATABASE_NAME, 4\)/);
   assert.match(storeSource, /createObjectStore\(SETTINGS_STORE_NAME, \{ keyPath: "key" \}\)/);
-  assert.match(storeSource, /HIDDEN_DEFAULT_TICKET_NUMBERS_KEY = "hiddenDefaultTicketNumbers"/);
+  assert.match(storeSource, /SAMPLES_VISIBLE_KEY = "samplesVisible"/);
+  assert.match(storeSource, /HIDDEN_SAMPLE_TICKET_NUMBERS_KEY = "hiddenSampleTicketNumbers"/);
+  assert.match(storeSource, /HIDDEN_COLLECTED_TICKETS_KEY = "hiddenCollectedTickets"/);
   assert.deepEqual(storeModule.resolveHiddenDefaultTicketNumbers(true, ["LT-P-1", "LT-U-2"]), ["LT-P-1", "LT-U-2"]);
-  assert.deepEqual(storeModule.resolveHiddenDefaultTicketNumbers(false, ["LT-P-1"]), []);
-  assert.deepEqual(storeModule.resolveHiddenDefaultTicketNumbers(["LT-P-1", "LT-P-1", 7, ""], []), ["LT-P-1"]);
+  assert.equal(storeModule.isCollectedTicketHidden({ ticketNumber: "LT-P-1", collectionRevision: "v1" }, [{ ticketNumber: "LT-P-1", collectionRevision: "v1" }]), true);
+  assert.equal(storeModule.isCollectedTicketHidden({ ticketNumber: "LT-P-1", collectionRevision: "v2" }, [{ ticketNumber: "LT-P-1", collectionRevision: "v1" }]), false);
+  assert.deepEqual(storeModule.migrateLegacyTicketVisibility(true, [
+    { ticketNumber: "SAMPLE", fictionalSample: true, collectionRevision: "s1" },
+    { ticketNumber: "USER", collectionRevision: "u1" },
+  ]), {
+    samplesVisible: false,
+    hiddenSampleTicketNumbers: [],
+    hiddenCollectedTickets: [{ ticketNumber: "USER", collectionRevision: "u1" }],
+  });
+  assert.match(storeSource, /records\[HIDDEN_DEFAULT_TICKET_NUMBERS_KEY\]/);
 });
 
 test("ticket imports enforce two past shapes and three future shapes", () => {
@@ -35,32 +46,36 @@ test("ticket imports enforce two past shapes and three future shapes", () => {
   assert.match(pageSource, /result\.rejected\[0\]\?\.reason/);
 });
 
-test("clear all removes local tickets and records current static ticket numbers atomically", () => {
-  assert.match(storeSource, /export async function clearAllTickets/);
-  assert.match(storeSource, /objectStore\(STORE_NAME\)\.clear\(\)/);
-  assert.match(storeSource, /HIDDEN_DEFAULT_TICKET_NUMBERS_KEY, value: resolveHiddenDefaultTicketNumbers\(defaultTicketNumbers, \[\]\)/);
-  assert.match(pageSource, /clearAllTickets\(defaultTicketNumbers\)/);
+test("clear user tickets preserves samples and hides collected user revisions", () => {
+  assert.match(storeSource, /export async function clearUserTickets/);
+  assert.match(storeSource, /ticket\.fictionalSample !== true/);
+  assert.match(storeSource, /cursor\.delete\(\)/);
+  assert.match(pageSource, /clearUserTickets\(nextSettings\)/);
+  assert.match(pageSource, /ticket\.fictionalSample === true\) continue/);
 });
 
-test("restore defaults clears only the persisted hidden number set", () => {
-  assert.match(storeSource, /export async function restoreDefaultTickets/);
-  assert.match(storeSource, /writeHiddenDefaultTicketNumbers\(\[\], true\)/);
-});
-
-test("page exposes clear and restore behavior with the agreed wording", () => {
-  assert.match(pageSource, /allTickets\.length > 0/);
+test("page exposes independent sample toggling and user-only clear wording", () => {
   assert.match(controlsSource, />清空票根<\/button>/);
-  assert.match(pageSource, /确认清空当前浏览器中的全部票根吗？网站自带票根可稍后恢复。/);
-  assert.match(pageSource, /canRestore=\{\(hiddenDefaultTicketNumbers\?\.length \|\| 0\) > 0\}/);
-  assert.match(controlsSource, />恢复默认票根<\/button>/);
-  assert.match(pageSource, /seedTickets\.filter\(\(ticket\) => !hiddenNumbers\.has/);
+  assert.match(pageSource, /确认清空全部用户票根吗？样票不会受到影响/);
+  assert.match(controlsSource, /samplesVisible \? "隐藏样票" : "显示样票"/);
+  assert.match(pageSource, /hiddenSampleTicketNumbers: \[\]/);
+  assert.doesNotMatch(controlsSource, /恢复默认票根/);
   assert.match(pageSource, /window\.setTimeout\(\(\) => \{[\s\S]*setImportMessage\(""\)[\s\S]*\}, 4200\)/);
 });
 
-test("exports only visible static tickets plus IndexedDB tickets", () => {
-  assert.match(pageSource, /if \(hiddenDefaultTicketNumbers\?\.includes\(ticket\.ticketNumber\)\) continue/);
+test("details delete samples by hiding and users by deleting or revision hiding", () => {
+  assert.match(controlsSource, /ticket\.fictionalSample === true \? "删除此样票" : "删除此票根"/);
+  assert.match(pageSource, /hiddenSampleTicketNumbers: \[\.\.\.new Set/);
+  assert.match(pageSource, /deleteStoredTicket\(ticketNumber\)/);
+  assert.match(pageSource, /collectionRevision: collectedTicketRevision\(manifestTicket\)/);
+});
+
+test("exports only visible manifest and IndexedDB tickets", () => {
+  assert.match(pageSource, /const visibleNumbers = new Set\(allTickets/);
+  assert.match(pageSource, /if \(!visibleNumbers\.has\(ticket\.ticketNumber\)\) continue/);
   assert.match(pageSource, /for \(const ticket of await readStoredTickets\(\)\)/);
   assert.match(pageSource, /canExport=\{allTickets\.length > 0\}/);
+  assert.match(pageSource, /if \(ticket\.fictionalSample === true\) data\.fictionalSample = true/);
 });
 
 test("homepage shell uses fixed responsive cover and subdued contact note", () => {

@@ -112,6 +112,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shape", choices=sorted(SHAPES), help="Override shape style")
     parser.add_argument("--stamp-style", choices=STAMP_STYLES, help="Override status-stamp style")
     parser.add_argument("--require-image", action="store_true", help="Fail instead of using procedural art when --image is missing")
+    parser.add_argument("--fictional-sample", action="store_true", help="Force fictionalSample=true in the final JSON")
     parser.add_argument("--preview-white", help="Optional white-background PNG for material inspection")
     return parser.parse_args()
 
@@ -1176,6 +1177,8 @@ def main() -> int:
     image_path = Path(args.image).expanduser().resolve() if args.image else None
     doodle_path = Path(args.doodle).expanduser().resolve() if args.doodle else None
     data = read_json(input_path)
+    if args.fictional_sample:
+        data["fictionalSample"] = True
     validate(data)
     shape, layout, stamp_style = choose_design(data, args.shape, args.stamp_style)
     resolve_event_doodle(data, layout, doodle_path)
