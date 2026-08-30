@@ -109,7 +109,7 @@ description: "把已经发生的人生片段或显化愿望做成可收藏的复
 
 ### 7. 精致出票并开始渲染
 
-只有用户明确回复“出票”后，才使用已确认的印章款式进入精致出票：先取得无文字主画面；首轮生成失败且适合重试时，进行一次非品牌化改写重试；再独立生成事件涂鸦透明 PNG，失败时重试一次后跳过；最后执行确定性票面渲染、叠加涂鸦与状态印章并交付文件。此时读取 [references/ticket-data.md](references/ticket-data.md)、[references/visual-language.md](references/visual-language.md) 与 [references/rendering-workflow.md](references/rendering-workflow.md)，严格按其中的数据、视觉和渲染规范执行。
+只有用户明确回复“出票”后，才使用已确认的印章款式进入精致出票：先取得无文字主画面；有用户照片时只把照片作为生成参考，先转成与无照片流程相同视觉语言的原创插画，绝不把原照片交给渲染器。首轮生成失败且适合重试时，进行一次非品牌化改写重试；仍失败或图像工具不可用时改用程序化象征画面。再独立生成事件涂鸦透明 PNG，失败时重试一次后跳过；最后执行确定性票面渲染、叠加涂鸦与状态印章并交付文件。此时读取 [references/ticket-data.md](references/ticket-data.md)、[references/visual-language.md](references/visual-language.md) 与 [references/rendering-workflow.md](references/rendering-workflow.md)，严格按其中的数据、视觉和渲染规范执行。
 
 “精致出票”是这张票的完整最终渲染阶段，不是额外的用户命令，也不会自动进行整票 AI 视觉润色。
 

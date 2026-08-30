@@ -72,7 +72,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 
 ## JSON 结构
 
-使用 UTF-8 编码和 2 空格缩进。除 `note` 外保留所有字段；未填写 `note` 时完全省略该属性。不要保存用户照片文件、二进制内容或照片路径。
+使用 UTF-8 编码和 2 空格缩进。一句话记录只使用 `note`；未填写时完全省略该属性。`record` 不是合法字段，出现时停止出票并要求改用 `note`。不要保存用户照片文件、二进制内容或照片路径。
 
 ```json
 {
@@ -120,7 +120,7 @@ PNG 与 JSON 使用票根编号作为相同的文件名。例如：
 - `fictionalSample`：仅虚构演示样票使用的可选布尔字段；样票必须为 `true`，真实用户票根不得自动添加
 - `kind`：`past`、`universe`
 - `status`：`ended`、`ordered`
-- `image.source`：`uploaded`、`generated`、`procedural`
+- `image.source`：`generated`、`procedural`；用户提供照片且参考图生成成功时也使用 `generated`
 - `design.shapeStyle`：`intermission-stub`、`film-edge`、`chapter-pass`
 - `design.layoutStyle`：`stage-triptych`、`chapter-poster`
 - `design.stampStyle`：`floral-slip`（花笺长印）、`negative-square`（白文方印）、`broken-ring`（残环圆印）

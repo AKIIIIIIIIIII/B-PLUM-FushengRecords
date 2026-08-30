@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+    from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont, ImageOps
 except ImportError as exc:
     raise SystemExit("Pillow is required: python3 -m pip install Pillow") from exc
 
@@ -126,6 +126,8 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def validate(data: dict[str, Any]) -> None:
+    if "record" in data:
+        raise ValueError("Unknown field: record; use note for 一句话记录")
     required = ["ticketNumber", "kind", "status", "title", "scene", "time", "place", "createdAt"]
     missing = [key for key in required if key not in data]
     if missing:
@@ -273,6 +275,63 @@ def load_font(size: int, serif: bool = True, role: str | None = None) -> ImageFo
     return ImageFont.truetype(resolve_font(selected), size=size)
 
 
+def font_role_for_char(char: str, role: str) -> str:
+    """Use Source Han Serif for every ASCII glyph inside Qiji display text."""
+    if role in {"display", "serif"} and char.isascii():
+        return "sans"
+    return role
+
+
+def split_font_runs(text: str, role: str) -> list[tuple[str, str]]:
+    runs: list[tuple[str, str]] = []
+    current_role: str | None = None
+    current = ""
+    for char in str(text):
+        char_role = font_role_for_char(char, role)
+        if current and char_role != current_role:
+            runs.append((current, str(current_role)))
+            current = char
+        else:
+            current += char
+        current_role = char_role
+    if current:
+        runs.append((current, str(current_role)))
+    return runs
+
+
+def mixed_run_font_size(size: int, base_role: str, run_role: str) -> int:
+    """Match Source Han's larger metrics to Qiji's visual display size."""
+    if base_role in {"display", "serif"} and run_role == "sans":
+        return max(1, round(size * 0.70))
+    return size
+
+
+def mixed_text_width(draw: ImageDraw.ImageDraw, text: str, size: int, role: str) -> int:
+    return sum(
+        text_width(draw, run, load_font(mixed_run_font_size(size, role, run_role), role=run_role))
+        for run, run_role in split_font_runs(text, role)
+    )
+
+
+def draw_mixed_text(
+    draw: ImageDraw.ImageDraw,
+    position: tuple[int, int],
+    text: str,
+    size: int,
+    role: str,
+    fill: str,
+) -> None:
+    x, y = position
+    prepared = [
+        (run, load_font(mixed_run_font_size(size, role, run_role), role=run_role))
+        for run, run_role in split_font_runs(text, role)
+    ]
+    baseline = y + max((font.getmetrics()[0] for _, font in prepared), default=size)
+    for run, font in prepared:
+        draw.text((x, baseline), run, font=font, fill=fill, anchor="ls")
+        x += text_width(draw, run, font)
+
+
 def text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> int:
     box = draw.textbbox((0, 0), text, font=font)
     return box[2] - box[0]
@@ -285,6 +344,21 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont
         for char in paragraph:
             trial = current + char
             if current and text_width(draw, trial, font) > width:
+                lines.append(current.rstrip())
+                current = char.lstrip()
+            else:
+                current = trial
+        lines.append(current.rstrip())
+    return [line for line in lines if line] or [""]
+
+
+def wrap_mixed_text(draw: ImageDraw.ImageDraw, text: str, size: int, role: str, width: int) -> list[str]:
+    lines: list[str] = []
+    for paragraph in str(text).splitlines() or [""]:
+        current = ""
+        for char in paragraph:
+            trial = current + char
+            if current and mixed_text_width(draw, trial, size, role) > width:
                 lines.append(current.rstrip())
                 current = char.lstrip()
             else:
@@ -339,28 +413,41 @@ def draw_text_box(
         width = max(1, box[2] - box[0])
         height = max(1, box[3] - box[1])
         for size in range(max_size, min_size - 1, -2):
-            font = load_font(size, role=role)
-            lines = wrap_text(draw, text, font, width)
+            if role in {"display", "serif"}:
+                lines = wrap_mixed_text(draw, text, size, role, width)
+            else:
+                font = load_font(size, role=role)
+                lines = wrap_text(draw, text, font, width)
             line_height = int(size * 1.25)
             if len(lines) <= max_lines and len(lines) * line_height <= height:
                 break
         else:
-            font = load_font(min_size, role=role)
-            lines = wrap_text(draw, text, font, width)[:max_lines]
+            size = min_size
+            if role in {"display", "serif"}:
+                lines = wrap_mixed_text(draw, text, size, role, width)[:max_lines]
+            else:
+                font = load_font(size, role=role)
+                lines = wrap_text(draw, text, font, width)[:max_lines]
             line_height = int(min_size * 1.25)
     else:
         font, lines, line_height = fit_text(draw, text, box, max_size, min_size, max_lines, serif)
     total = len(lines) * line_height
     y = box[1] if valign == "top" else box[1] + max(0, (box[3] - box[1] - total) // 2)
     for line in lines:
-        width = text_width(draw, line, font)
+        if role in {"display", "serif"}:
+            width = mixed_text_width(draw, line, size, role)
+        else:
+            width = text_width(draw, line, font)
         if align == "center":
             x = box[0] + max(0, (box[2] - box[0] - width) // 2)
         elif align == "right":
             x = box[2] - width
         else:
             x = box[0]
-        draw.text((x, y), line, font=font, fill=fill)
+        if role in {"display", "serif"}:
+            draw_mixed_text(draw, (x, y), line, size, role, fill)
+        else:
+            draw.text((x, y), line, font=font, fill=fill)
         y += line_height
 
 
@@ -506,20 +593,6 @@ def generated_ticket_stock(shape: str, size: tuple[int, int], fallback: str) -> 
 def crop_cover(image: Image.Image, size: tuple[int, int], centering: tuple[float, float] = (0.5, 0.5)) -> Image.Image:
     image = ImageOps.exif_transpose(image).convert("RGB")
     return ImageOps.fit(image, size, method=Image.Resampling.LANCZOS, centering=centering).convert("RGBA")
-
-
-def stylize_uploaded(image: Image.Image, size: tuple[int, int], palette: dict[str, str]) -> Image.Image:
-    fitted = crop_cover(image, size)
-    gray = ImageOps.grayscale(fitted)
-    gray = ImageEnhance.Contrast(gray).enhance(1.35)
-    toned = ImageOps.colorize(gray, black=palette["deep"], white=palette["light"], mid=palette["accent2"])
-    toned = ImageEnhance.Color(toned).enhance(0.82).convert("RGBA")
-    edges = gray.filter(ImageFilter.FIND_EDGES).filter(ImageFilter.GaussianBlur(0.6))
-    edges = ImageOps.invert(edges).point(lambda value: 255 if value > 205 else 0)
-    line = Image.new("RGBA", size, palette["ink"])
-    line.putalpha(ImageOps.invert(edges).point(lambda value: value // 3))
-    toned.alpha_composite(line)
-    return toned
 
 
 def draw_star(draw: ImageDraw.ImageDraw, center: tuple[int, int], radius: int, fill: str, points: int = 8) -> None:
@@ -720,8 +793,6 @@ def get_art(
 ) -> Image.Image:
     if image_path:
         with Image.open(image_path) as source:
-            if data.get("image", {}).get("source") == "uploaded":
-                return stylize_uploaded(source, size, palette)
             result = crop_cover(source, size)
             overlay = Image.new("RGBA", size, palette["paper"] + "22")
             result.alpha_composite(overlay)
@@ -975,8 +1046,7 @@ def render_triptych(
     else:
         micro_label(draw, margin + 42, int(height * 0.20), "时间", palette["ticketAccentDark"], 22)
         time_display = str(time.get("display", ""))
-        time_role = "sans" if any(char.isdigit() or char.isascii() and char.isalpha() for char in time_display) else "display"
-        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=47, min_size=30, max_lines=2, role=time_role)
+        draw_text_box(draw, time_display, (margin + 42, int(height * 0.26), x_left - 28, int(height * 0.44)), ink, max_size=47, min_size=30, max_lines=2, role="display")
 
     place_y = int(height * 0.48) if not time_hidden else int(height * 0.64)
     doodle_box = (x_left - 175, place_y, x_left - 35, place_y + 140) if doodle is not None else None
@@ -986,7 +1056,7 @@ def render_triptych(
     note = data.get("note")
     if note:
         note_y = int(height * 0.66)
-        micro_label(draw, margin + 42, note_y, "记录", palette["ticketAccentDark"], 21)
+        micro_label(draw, margin + 42, note_y, "一句话记录", palette["ticketAccentDark"], 21)
         draw_text_box(draw, str(note), (margin + 42, note_y + 34, detail_right, height - margin - 12), palette["deep"], max_size=34, min_size=23, max_lines=3, role="display")
 
     if not time_hidden:
@@ -1083,7 +1153,7 @@ def render_poster(
     note_top = 1035
     info_top = 1160 if note else 1055
     if note:
-        micro_label(draw, margin + 55, note_top + 4, "记录", palette["ticketAccentDark"], 21)
+        micro_label(draw, margin + 55, note_top + 4, "一句话记录", palette["ticketAccentDark"], 21)
         draw_text_box(draw, str(note), (margin + 155, note_top, width - margin - 45, info_top - 15), palette["deep"], max_size=37, min_size=26, max_lines=3, role="display", valign="center")
         draw.line((margin + 55, info_top, width - margin - 35, info_top), fill=ink, width=1)
 
